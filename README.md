@@ -24,6 +24,20 @@ curl -sSL https://get.den.dev | sh
 den serve
 ```
 
+## What's New
+
+### Storage Layer (v0.2)
+
+- **Configurable tmpfs** — Per-sandbox tmpfs size overrides (e.g. `/tmp` with 128MB instead of default 256MB)
+- **Persistent volumes** — Docker named volumes that survive sandbox destruction
+- **Shared volumes** — Mount the same volume across multiple sandboxes (read-write or read-only)
+- **S3 sync (hooks mode)** — Automatically download files from S3 on sandbox create, upload back on destroy
+- **S3 sync (on-demand)** — Import/export files between sandboxes and S3 via REST API
+- **S3 FUSE mount** — Mount an S3 bucket as a filesystem inside the sandbox (requires `SYS_ADMIN`)
+- **Go, TypeScript, Python SDKs** — Updated with full storage type support
+
+See [Configuration > Storage](docs/configuration.md#storage) for setup details.
+
 ## Why Den?
 
 AI agents need to run code, but running untrusted code on your machine is dangerous. Den solves this by providing:
@@ -33,6 +47,7 @@ AI agents need to run code, but running untrusted code on your machine is danger
 - **WebSocket streaming** — Real-time command output for interactive use cases
 - **MCP server** — Native Model Context Protocol support for Claude, Cursor, and other AI tools
 - **Snapshot/Restore** — Save sandbox state and restore it later for reproducible environments
+- **Storage** — Persistent volumes, shared volumes, configurable tmpfs, and S3 integration
 - **Go + TypeScript + Python SDKs** — First-class client libraries
 
 ## Quick Start
@@ -143,6 +158,10 @@ Now Claude can create sandboxes, run code, and manage files directly.
 | **File Operations** | Read, write, list, mkdir, delete files inside sandboxes |
 | **File Upload/Download** | Multipart upload and direct download |
 | **Snapshots** | Save and restore sandbox state via `docker commit` |
+| **Persistent Volumes** | Docker named volumes that survive sandbox destruction |
+| **Shared Volumes** | Mount the same volume across sandboxes (RW or RO) |
+| **Configurable Tmpfs** | Per-sandbox tmpfs size and option overrides |
+| **S3 Sync** | Import/export files via hooks, on-demand API, or FUSE mount |
 | **Port Forwarding** | Expose sandbox ports to host (bound to 127.0.0.1) |
 | **Resource Limits** | CPU, memory, PID limits per sandbox |
 | **Auto-Expiry** | Sandboxes auto-destroy after configurable timeout |
@@ -156,7 +175,7 @@ Now Claude can create sandboxes, run code, and manage files directly.
 Den takes security seriously. Every sandbox runs with:
 
 - **Dropped capabilities** — `ALL` capabilities dropped, minimal set added back
-- **Read-only root filesystem** — Only tmpfs mounts (`/tmp`, `/home/sandbox`) are writable
+- **Read-only root filesystem** — Only tmpfs mounts and explicit volumes are writable
 - **PID limits** — Default 256 processes per container
 - **No new privileges** — `no-new-privileges` security option
 - **Network isolation** — Containers on internal Docker network
@@ -180,16 +199,18 @@ Den takes security seriously. Every sandbox runs with:
                           │
                     ┌─────┴─────┐
                     │  Engine   │  Lifecycle, reaper, limits
-                    └─────┬─────┘
-                          │
-                ┌─────────┴─────────┐
-                │  Docker Runtime   │  Docker SDK
-                └─────────┬─────────┘
-                          │
-              ┌───────────┴───────────┐
-              │  Docker Containers    │
-              │  (isolated sandboxes) │
-              └───────────────────────┘
+                    └──┬────┬──┘
+                       │    │
+          ┌────────────┘    └────────────┐
+  ┌───────┴───────┐           ┌──────────┴─────────┐
+  │ Docker Runtime│           │  Storage Layer     │
+  │  Docker SDK   │           │  Volumes, S3, Tmpfs│
+  └───────┬───────┘           └──────────┬─────────┘
+          │                              │
+  ┌───────┴───────┐           ┌──────────┴─────────┐
+  │   Containers  │           │  S3 / MinIO        │
+  │  (sandboxes)  │           │  Docker Volumes    │
+  └───────────────┘           └────────────────────┘
 ```
 
 ## Performance
@@ -256,6 +277,15 @@ sandbox:
   default_timeout: "30m"
   max_sandboxes: 50
   default_memory: 536870912  # 512MB
+  allow_volumes: true
+  allow_s3: true
+  max_volumes_per_sandbox: 5
+
+s3:
+  endpoint: "http://localhost:9000"  # MinIO or S3-compatible
+  region: "us-east-1"
+  access_key: "minioadmin"
+  secret_key: "minioadmin"
 
 auth:
   enabled: true

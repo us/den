@@ -79,6 +79,7 @@ Request body:
 | `cpu` | int | `1000000000` | CPU limit in NanoCPUs (1 core = 1e9) |
 | `memory` | int | `536870912` | Memory limit in bytes (default 512MB) |
 | `ports` | array | `[]` | Port mappings (set `host_port: 0` for auto-assign) |
+| `storage` | object | `null` | Storage configuration (see below) |
 
 Response `201 Created`:
 ```json
@@ -90,6 +91,56 @@ Response `201 Created`:
   "expires_at": "2026-03-03T12:14:25.809Z"
 }
 ```
+
+**Storage configuration** (`storage` field):
+
+```json
+{
+  "storage": {
+    "volumes": [
+      {"name": "my-data", "mount_path": "/data", "read_only": false}
+    ],
+    "tmpfs": [
+      {"path": "/tmp", "size": "128m", "options": "rw,noexec,nosuid"}
+    ],
+    "s3": {
+      "endpoint": "http://minio:9000",
+      "bucket": "my-bucket",
+      "prefix": "sandbox-data/",
+      "access_key": "minioadmin",
+      "secret_key": "minioadmin",
+      "mode": "hooks",
+      "sync_path": "/home/sandbox"
+    }
+  }
+}
+```
+
+| Storage Field | Type | Description |
+|---------------|------|-------------|
+| `storage.volumes` | array | Docker named volume mounts |
+| `storage.volumes[].name` | string | Volume name (auto-prefixed with `den-`) |
+| `storage.volumes[].mount_path` | string | Mount path inside container |
+| `storage.volumes[].read_only` | bool | Mount as read-only (default `false`) |
+| `storage.tmpfs` | array | Tmpfs mount overrides |
+| `storage.tmpfs[].path` | string | Mount path |
+| `storage.tmpfs[].size` | string | Size (e.g. `256m`, `1g`) |
+| `storage.tmpfs[].options` | string | Mount options (e.g. `rw,noexec,nosuid`) |
+| `storage.s3` | object | S3 sync configuration |
+| `storage.s3.mode` | string | `hooks`, `fuse`, or `on_demand` |
+| `storage.s3.bucket` | string | S3 bucket name |
+| `storage.s3.prefix` | string | Key prefix for sync |
+| `storage.s3.sync_path` | string | Local path for hooks mode (default `/home/sandbox`) |
+| `storage.s3.mount_path` | string | Mount path for FUSE mode |
+| `storage.s3.endpoint` | string | S3 endpoint (overrides server default) |
+| `storage.s3.access_key` | string | Access key (overrides server default) |
+| `storage.s3.secret_key` | string | Secret key (overrides server default) |
+
+**S3 sync modes:**
+
+- **`hooks`** — On sandbox create: download all objects under `prefix` to `sync_path`. On sandbox destroy: upload `sync_path` contents back to S3.
+- **`fuse`** — Mount bucket as a filesystem at `mount_path` using s3fs. Requires `allow_s3_fuse: true` in server config.
+- **`on_demand`** — No automatic sync. Use the S3 Import/Export API endpoints manually.
 
 Error responses:
 - `400` — Invalid request body
@@ -357,6 +408,99 @@ GET /api/v1/sandboxes/{id}/files/download?path=/tmp/hello.py
 Returns the file as a download with `Content-Disposition: attachment` header.
 
 Response `200 OK`: Raw file content
+
+---
+
+## S3 Import/Export
+
+Transfer files between sandboxes and S3-compatible storage (AWS S3, MinIO, etc.).
+
+### Import from S3
+
+```
+POST /api/v1/sandboxes/{id}/files/s3-import
+Content-Type: application/json
+```
+
+Request body:
+```json
+{
+  "bucket": "my-bucket",
+  "key": "data/input.csv",
+  "dest_path": "/home/sandbox/input.csv",
+  "endpoint": "http://minio:9000",
+  "access_key": "minioadmin",
+  "secret_key": "minioadmin",
+  "region": "us-east-1"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `bucket` | string | yes | S3 bucket name |
+| `key` | string | yes | S3 object key |
+| `dest_path` | string | yes | Destination path inside sandbox |
+| `endpoint` | string | no | S3 endpoint (falls back to server default) |
+| `access_key` | string | no | Access key (falls back to server default) |
+| `secret_key` | string | no | Secret key (falls back to server default) |
+| `region` | string | no | AWS region (falls back to server default) |
+
+Response `200 OK`:
+```json
+{
+  "success": true,
+  "bytes_downloaded": 1048576,
+  "path": "/home/sandbox/input.csv"
+}
+```
+
+Errors:
+- `400` — Invalid request, path traversal detected, object exceeds 100MB limit, or blocked endpoint
+- `404` — Sandbox not found
+- `409` — Sandbox is not running
+
+### Export to S3
+
+```
+POST /api/v1/sandboxes/{id}/files/s3-export
+Content-Type: application/json
+```
+
+Request body:
+```json
+{
+  "source_path": "/home/sandbox/output.csv",
+  "bucket": "my-bucket",
+  "key": "results/output.csv",
+  "endpoint": "http://minio:9000",
+  "access_key": "minioadmin",
+  "secret_key": "minioadmin"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `source_path` | string | yes | File path inside sandbox |
+| `bucket` | string | yes | S3 bucket name |
+| `key` | string | yes | S3 object key |
+| `endpoint` | string | no | S3 endpoint (falls back to server default) |
+| `access_key` | string | no | Access key (falls back to server default) |
+| `secret_key` | string | no | Secret key (falls back to server default) |
+| `region` | string | no | AWS region (falls back to server default) |
+
+Response `200 OK`:
+```json
+{
+  "success": true,
+  "bytes_uploaded": 2048,
+  "s3_key": "results/output.csv"
+}
+```
+
+Errors:
+- `400` — Invalid request, path traversal detected, file exceeds 100MB limit, or blocked endpoint
+- `404` — Sandbox not found
+- `409` — Sandbox is not running
 
 ---
 

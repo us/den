@@ -48,6 +48,27 @@ sandbox:
   default_memory: 536870912      # Memory limit in bytes (512MB)
   default_pid_limit: 256         # Max processes per sandbox
   warm_pool_size: 0              # Pre-created standby sandboxes
+  allow_volumes: true            # Enable Docker named volumes
+  allow_shared_volumes: true     # Allow same volume on multiple sandboxes
+  allow_s3: true                 # Enable S3 sync features
+  allow_s3_fuse: false           # Enable S3 FUSE mounts (requires SYS_ADMIN)
+  allow_host_binds: false        # Allow host directory bind mounts (DANGEROUS)
+  max_volumes_per_sandbox: 5     # Max volume mounts per sandbox
+  default_tmpfs:                 # Default tmpfs mounts (overridable per-sandbox)
+    - path: "/tmp"
+      size: "256m"
+    - path: "/home/sandbox"
+      size: "512m"
+    - path: "/run"
+      size: "64m"
+    - path: "/var/tmp"
+      size: "128m"
+
+s3:
+  endpoint: ""                   # S3-compatible endpoint (e.g. MinIO)
+  region: "us-east-1"            # AWS region
+  access_key: ""                 # Default access key (per-sandbox override possible)
+  secret_key: ""                 # Default secret key (per-sandbox override possible)
 
 store:
   path: "den.db"       # BoltDB database file path
@@ -78,6 +99,15 @@ Every config option can be set via environment variable. Use the prefix `DEN_` w
 | `sandbox.default_memory` | `DEN_SANDBOX__DEFAULT_MEMORY` |
 | `sandbox.default_cpu` | `DEN_SANDBOX__DEFAULT_CPU` |
 | `sandbox.default_pid_limit` | `DEN_SANDBOX__DEFAULT_PID_LIMIT` |
+| `sandbox.allow_volumes` | `DEN_SANDBOX__ALLOW_VOLUMES` |
+| `sandbox.allow_shared_volumes` | `DEN_SANDBOX__ALLOW_SHARED_VOLUMES` |
+| `sandbox.allow_s3` | `DEN_SANDBOX__ALLOW_S3` |
+| `sandbox.allow_s3_fuse` | `DEN_SANDBOX__ALLOW_S3_FUSE` |
+| `sandbox.max_volumes_per_sandbox` | `DEN_SANDBOX__MAX_VOLUMES_PER_SANDBOX` |
+| `s3.endpoint` | `DEN_S3__ENDPOINT` |
+| `s3.region` | `DEN_S3__REGION` |
+| `s3.access_key` | `DEN_S3__ACCESS_KEY` |
+| `s3.secret_key` | `DEN_S3__SECRET_KEY` |
 | `auth.enabled` | `DEN_AUTH__ENABLED` |
 | `store.path` | `DEN_STORE__PATH` |
 | `log.level` | `DEN_LOG__LEVEL` |
@@ -133,6 +163,44 @@ Memory limit in bytes. `536870912` = 512MB. `1073741824` = 1GB. The container is
 
 #### `sandbox.default_pid_limit`
 Maximum number of processes inside the container. Prevents fork bombs. Default `256`.
+
+### Storage
+
+#### `sandbox.allow_volumes`
+When `true`, sandboxes can request Docker named volume mounts. Volumes are namespaced with a `den-` prefix. Default `true`.
+
+#### `sandbox.allow_shared_volumes`
+When `true`, the same named volume can be mounted by multiple sandboxes simultaneously. When `false`, a volume already in use by another sandbox will be rejected. Default `true`.
+
+#### `sandbox.allow_s3`
+When `true`, sandboxes can use S3 sync features (hooks mode and on-demand API). Default `true`.
+
+#### `sandbox.allow_s3_fuse`
+When `true`, sandboxes can use S3 FUSE mounts. This grants `SYS_ADMIN` capability and `/dev/fuse` device access to the container — a significant security escalation. Default `false`.
+
+#### `sandbox.allow_host_binds`
+When `true`, host directory bind mounts are allowed. **Never enable in production** — this gives sandboxes access to the host filesystem. Default `false`.
+
+#### `sandbox.max_volumes_per_sandbox`
+Maximum number of volume mounts allowed per sandbox. Default `5`.
+
+#### `sandbox.default_tmpfs`
+Default tmpfs mounts applied to every sandbox. Each entry has `path` and `size`. Per-sandbox overrides can change sizes or add new mount points.
+
+Size format: `256m`, `1g`, `512k`. Maximum: `4g`.
+
+### S3
+
+Server-wide S3 defaults. Per-sandbox configs can override these values.
+
+#### `s3.endpoint`
+S3-compatible endpoint URL. Required for MinIO, LocalStack, or other S3-compatible services. Leave empty for AWS S3.
+
+#### `s3.region`
+AWS region. Default `us-east-1`.
+
+#### `s3.access_key` / `s3.secret_key`
+Default credentials used when per-sandbox credentials are not provided. The secret key is masked in logs.
 
 ### Authentication
 
@@ -224,4 +292,24 @@ sandbox:
   default_cpu: 500000000      # 0.5 cores
   default_pid_limit: 128
   default_timeout: "10m"
+```
+
+### With S3 Storage (MinIO)
+
+```yaml
+sandbox:
+  allow_volumes: true
+  allow_s3: true
+  max_volumes_per_sandbox: 5
+  default_tmpfs:
+    - path: "/tmp"
+      size: "512m"
+    - path: "/home/sandbox"
+      size: "1g"
+
+s3:
+  endpoint: "http://minio:9000"
+  region: "us-east-1"
+  access_key: "minioadmin"
+  secret_key: "minioadmin"
 ```

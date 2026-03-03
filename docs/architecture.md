@@ -59,6 +59,7 @@ Request → RequestID → RealIP → Logger → Recoverer → RateLimit → CORS
 - `handlers/snapshot.go` — Snapshot management
 - `handlers/port.go` — Port forwarding
 - `handlers/stats.go` — Resource statistics
+- `handlers/s3.go` — S3 import/export operations
 
 **WebSocket** streaming is handled separately in `ws/exec.go` for real-time command output.
 
@@ -72,6 +73,8 @@ The Engine orchestrates sandbox lifecycle and enforces business rules:
 - **Auto-expiry** — Reaper goroutine runs every 30 seconds, destroys expired sandboxes
 - **State persistence** — Saves sandbox metadata to BoltDB store
 - **Startup recovery** — Restores sandboxes from store on restart, validates against Docker state
+- **Storage orchestration** — S3 hook init/cleanup, volume validation, tmpfs configuration
+- **Concurrent safety** — `LoadAndDelete` for destroy, mutex-protected volume checks
 
 **Status machine:**
 ```
@@ -123,7 +126,31 @@ Uses the official Docker SDK (`github.com/docker/docker/client`):
 
 **Why exec-based file I/O?** Docker's `CopyToContainer`/`CopyFromContainer` operates at the overlay filesystem level, which fails with read-only root filesystem (`ReadonlyRootfs: true`). The exec-based approach works through the container's mount namespace and correctly handles tmpfs mounts.
 
-### 5. Store Layer (`internal/store/`)
+### 5. Storage Layer (`internal/storage/`)
+
+Manages all persistent and external storage:
+
+- **tmpfs.go** — Builds tmpfs mount configurations by merging server defaults with per-sandbox overrides. Validates sizes (max 4GB) and mount options (whitelist: `rw`, `ro`, `noexec`, `nosuid`, `nodev`).
+- **volume.go** — Docker named volume validation. Names must match `^[a-zA-Z0-9][a-zA-Z0-9_.-]+$` and are namespaced with `den-` prefix to prevent collisions.
+- **s3.go** — AWS SDK v2 wrapper for S3 operations (Download, Upload, ListObjects). Supports credential resolution with per-sandbox → server-default fallback.
+- **s3_fuse.go** — FUSE mount setup inside containers using s3fs. Writes credentials, mounts bucket, and cleans up credentials via `defer`. Requires `SYS_ADMIN` cap + `/dev/fuse`.
+
+**S3 sync modes:**
+
+| Mode | Trigger | Description |
+|------|---------|-------------|
+| `hooks` | Sandbox create/destroy | Auto-download on init, auto-upload on cleanup |
+| `on_demand` | REST API call | Manual import/export via `/files/s3-import` and `/files/s3-export` |
+| `fuse` | Sandbox create | s3fs FUSE mount at specified path |
+
+**Security controls:**
+- Path traversal protection on all mount paths and S3 key-to-path mappings
+- Object size limits (100MB per file) on both download and upload
+- Credential file cleanup via `defer` pattern
+- SSRF protection on user-supplied endpoints (block metadata IPs)
+- Secret key masking in all log output
+
+### 6. Store Layer (`internal/store/`)
 
 BoltDB provides embedded key-value persistence:
 
@@ -132,7 +159,7 @@ BoltDB provides embedded key-value persistence:
 
 The store is used for crash recovery. On startup, the engine loads sandboxes from the store and validates each against Docker state, removing stale records.
 
-### 6. MCP Server (`internal/mcp/`)
+### 7. MCP Server (`internal/mcp/`)
 
 Implements JSON-RPC 2.0 over stdio for Model Context Protocol:
 
@@ -150,15 +177,18 @@ Client → POST /api/v1/sandboxes
   → Auth middleware validates API key
   → Handler parses request body
   → Engine.CreateSandbox()
-    → Check sandbox limit
+    → Check sandbox limit (under mutex)
+    → Validate storage config (volumes, S3, tmpfs — also under mutex)
     → Generate xid
+    → Build tmpfs map (merge defaults + overrides)
     → Runtime.Create() → Docker ContainerCreate
       → Security config (caps, rootfs, limits)
       → Network config (den-net)
-      → Port bindings
+      → Port bindings, volume mounts, tmpfs
     → Runtime.Start() → Docker ContainerStart
-    → Store.SaveSandbox() → BoltDB
-    → Track in sync.Map
+    → Store.SaveSandbox() → BoltDB + sync.Map
+    → S3 hook init (if mode=hooks)
+      → ListObjects → Download → WriteFile into container
   ← Return sandbox JSON
 ```
 
@@ -217,7 +247,7 @@ Every sandbox container runs with hardened security:
 |---------|---------|
 | Capabilities | `ALL` dropped, `NET_BIND_SERVICE` added |
 | Root filesystem | Read-only (`ReadonlyRootfs: true`) |
-| Writable mounts | tmpfs: `/tmp`, `/home/sandbox`, `/run`, `/var/tmp` |
+| Writable mounts | tmpfs (configurable), Docker named volumes |
 | Privileges | `no-new-privileges` security option |
 | PID limit | Default 256 (prevents fork bombs) |
 | Memory limit | Default 512MB (OOM kill on exceed) |
