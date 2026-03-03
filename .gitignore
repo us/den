@@ -15,8 +15,7 @@ vendor/
 
 # Node
 node_modules/
-dist/
-!internal/dashboard/dist/
+sdk/*/dist/
 
 # Python
 __pycache__/
@@ -46,4 +45,4 @@ FIXPLAN.md
 PROGRESS.md
 
 # GoReleaser
-dist/
+/dist/

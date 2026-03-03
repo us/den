@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Den Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+    .header { background: #1e293b; border-bottom: 1px solid #334155; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header .version { color: #64748b; font-size: 13px; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .stat-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 20px; }
+    .stat-card .label { color: #94a3b8; font-size: 13px; margin-bottom: 4px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; }
+    .stat-card .value.green { color: #4ade80; }
+    .stat-card .value.blue { color: #60a5fa; }
+    .stat-card .value.red { color: #f87171; }
+    .section { margin-bottom: 32px; }
+    .section h2 { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+    table { width: 100%; border-collapse: collapse; background: #1e293b; border: 1px solid #334155; border-radius: 8px; overflow: hidden; }
+    th { text-align: left; padding: 12px 16px; background: #0f172a; color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+    td { padding: 12px 16px; border-top: 1px solid #334155; font-size: 14px; }
+    .status { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 12px; font-weight: 500; }
+    .status.running { background: #166534; color: #4ade80; }
+    .status.stopped { background: #7f1d1d; color: #f87171; }
+    .status.creating { background: #854d0e; color: #facc15; }
+    .btn { background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .btn:hover { background: #2563eb; }
+    .btn.danger { background: #ef4444; }
+    .btn.danger:hover { background: #dc2626; }
+    .actions { display: flex; gap: 6px; }
+    .empty { text-align: center; padding: 48px; color: #64748b; }
+    .refresh-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    #loading { display: none; color: #64748b; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Den</h1>
+    <span class="version" id="version">v-</span>
+  </div>
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="label">Total Sandboxes</div>
+        <div class="value blue" id="total">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Running</div>
+        <div class="value green" id="running">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Stopped</div>
+        <div class="value red" id="stopped">0</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="refresh-bar">
+        <h2>Sandboxes</h2>
+        <div>
+          <span id="loading">Refreshing...</span>
+          <button class="btn" onclick="createSandbox()">Create Sandbox</button>
+          <button class="btn" onclick="refresh()" style="background:#475569">Refresh</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Image</th><th>Status</th><th>Created</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="sandbox-list">
+          <tr><td colspan="5" class="empty">No sandboxes yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const API = '/api/v1';
+
+    async function fetchJSON(url, opts = {}) {
+      const res = await fetch(API + url, { headers: { 'Content-Type': 'application/json' }, ...opts });
+      if (!res.ok) throw new Error(await res.text());
+      if (res.status === 204) return null;
+      return res.json();
+    }
+
+    async function refresh() {
+      document.getElementById('loading').style.display = 'inline';
+      try {
+        const [sandboxes, version] = await Promise.all([
+          fetchJSON('/sandboxes'),
+          fetchJSON('/version'),
+        ]);
+
+        document.getElementById('version').textContent = 'v' + version.version;
+
+        const running = sandboxes.filter(s => s.status === 'running').length;
+        const stopped = sandboxes.filter(s => s.status === 'stopped').length;
+
+        document.getElementById('total').textContent = sandboxes.length;
+        document.getElementById('running').textContent = running;
+        document.getElementById('stopped').textContent = stopped;
+
+        const tbody = document.getElementById('sandbox-list');
+        if (sandboxes.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="empty">No sandboxes yet</td></tr>';
+        } else {
+          tbody.innerHTML = sandboxes.map(s => `
+            <tr>
+              <td><code>${s.id}</code></td>
+              <td>${s.image || '-'}</td>
+              <td><span class="status ${s.status}">${s.status}</span></td>
+              <td>${new Date(s.created_at).toLocaleString()}</td>
+              <td class="actions">
+                ${s.status === 'running' ? `<button class="btn" onclick="stopSandbox('${s.id}')">Stop</button>` : ''}
+                <button class="btn danger" onclick="destroySandbox('${s.id}')">Destroy</button>
+              </td>
+            </tr>
+          `).join('');
+        }
+      } catch (e) {
+        console.error('Refresh failed:', e);
+      }
+      document.getElementById('loading').style.display = 'none';
+    }
+
+    async function createSandbox() {
+      const image = prompt('Image (leave empty for default):', '');
+      try {
+        await fetchJSON('/sandboxes', {
+          method: 'POST',
+          body: JSON.stringify({ image: image || undefined }),
+        });
+        refresh();
+      } catch (e) { alert('Failed: ' + e.message); }
+    }
+
+    async function stopSandbox(id) {
+      try {
+        await fetchJSON(`/sandboxes/${id}/stop`, { method: 'POST' });
+        refresh();
+      } catch (e) { alert('Failed: ' + e.message); }
+    }
+
+    async function destroySandbox(id) {
+      if (!confirm('Destroy sandbox ' + id + '?')) return;
+      try {
+        await fetch(API + `/sandboxes/${id}`, { method: 'DELETE' });
+        refresh();
+      } catch (e) { alert('Failed: ' + e.message); }
+    }
+
+    refresh();
+    setInterval(refresh, 10000);
+  </script>
+</body>
+</html>
