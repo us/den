@@ -270,4 +270,4 @@ go test ./internal/... -count=1 -race -v
 
 ## 许可证
 
-MIT
+AGPL-3.0 — 详见 [LICENSE](LICENSE)。
