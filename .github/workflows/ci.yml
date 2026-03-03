@@ -90,7 +90,7 @@ jobs:
         working-directory: sdk/python
         run: |
           uv sync
-          if find . -name "test_*.py" -o -name "*_test.py" | grep -q .; then
+          if find . -type f \( -name "test_*.py" -o -name "*_test.py" \) | grep -q .; then
             uv run python -m pytest
           else
             echo "No test files found, skipping"

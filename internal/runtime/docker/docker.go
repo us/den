@@ -153,10 +153,10 @@ func (r *DockerRuntime) Create(ctx context.Context, id string, cfg runtime.Sandb
 		},
 	}
 	if cfg.PidLimit > 0 {
-		hostCfg.Resources.PidsLimit = &cfg.PidLimit
+		hostCfg.PidsLimit = &cfg.PidLimit
 	} else {
 		defaultPidLimit := int64(256)
-		hostCfg.Resources.PidsLimit = &defaultPidLimit
+		hostCfg.PidsLimit = &defaultPidLimit
 	}
 
 	networkCfg := &network.NetworkingConfig{}

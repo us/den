@@ -139,9 +139,9 @@ func Load(path string) (*Config, error) {
 
 	// Load from environment variables (override file settings)
 	if err := k.Load(env.Provider("DEN_", ".", func(s string) string {
-		return strings.Replace(
+		return strings.ReplaceAll(
 			strings.ToLower(strings.TrimPrefix(s, "DEN_")),
-			"__", ".", -1,
+			"__", ".",
 		)
 	}), nil); err != nil {
 		return nil, fmt.Errorf("loading env config: %w", err)
