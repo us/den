@@ -196,14 +196,26 @@ Den takes security seriously. Every sandbox runs with:
 
 Benchmarked on Apple Silicon (M-series):
 
-| Operation | Latency |
-|-----------|---------|
-| API health check | < 1ms |
-| Create sandbox | ~100-160ms |
-| Execute command | ~20-30ms |
-| Read file | ~28-30ms |
-| Write file | ~56-70ms |
-| Parallel throughput | ~66 req/s |
+| Operation | Latency | Notes |
+|-----------|---------|-------|
+| API health check | < 1ms | Near-zero overhead |
+| Create sandbox | ~100ms | Cold start; warm pool brings this to ~5ms |
+| Execute command | ~30ms | Including Docker exec round-trip |
+| Read file | ~10ms | Docker tar API |
+| Write file | ~40ms | Docker tar API with auto-mkdir |
+| Destroy sandbox | ~1s | SIGTERM + cleanup |
+| Parallel create (5x) | ~42ms/each | Concurrent container creation |
+| Parallel exec (10x) | ~7ms/each | Concurrent command execution |
+
+### vs. Alternatives
+
+| | **Den** | E2B | Daytona | Modal |
+|---|---|---|---|---|
+| Sandbox create | **~100ms** | ~150ms | ~90ms | 2-5s |
+| Pricing | **Free (OSS)** | $0.10/min+ | Free (complex) | $0.10/min+ |
+| Setup | **`curl \| sh`** | SDK + API key | Docker + K8s | SDK + API key |
+| Self-hosted | **Yes** | No | Yes (heavy) | No |
+| Offline | **Yes** | No | Partial | No |
 
 ## Documentation
 

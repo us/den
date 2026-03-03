@@ -1,37 +1,54 @@
 package docker
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
+
+	"github.com/docker/docker/api/types/container"
 
 	"github.com/getden/den/internal/runtime"
 )
 
-// ReadFile reads a file from the container.
-// Uses exec-based approach for compatibility with readonly rootfs.
+// ReadFile reads a file from the container using Docker's CopyFromContainer API.
+// This is significantly faster than exec-based cat approach.
 func (r *DockerRuntime) ReadFile(ctx context.Context, id string, path string) ([]byte, error) {
-	result, err := r.Exec(ctx, id, runtime.ExecOpts{
-		Cmd: []string{"cat", path},
-	})
+	containerName := r.containerName(id)
+
+	reader, _, err := r.cli.CopyFromContainer(ctx, containerName, path)
 	if err != nil {
 		return nil, fmt.Errorf("reading file %s in %s: %w", path, id, err)
 	}
-	if result.ExitCode != 0 {
-		return nil, fmt.Errorf("reading file %s in %s: %s", path, id, result.Stderr)
+	defer reader.Close()
+
+	tr := tar.NewReader(reader)
+	if _, err := tr.Next(); err != nil {
+		return nil, fmt.Errorf("reading tar header for %s in %s: %w", path, id, err)
 	}
-	if len(result.Stdout) > maxReadFileSize {
-		return nil, fmt.Errorf("file too large: %d bytes (max %d)", len(result.Stdout), maxReadFileSize)
+
+	var buf bytes.Buffer
+	limited := io.LimitReader(tr, maxReadFileSize+1)
+	n, err := buf.ReadFrom(limited)
+	if err != nil {
+		return nil, fmt.Errorf("reading file content %s in %s: %w", path, id, err)
 	}
-	return []byte(result.Stdout), nil
+	if n > maxReadFileSize {
+		return nil, fmt.Errorf("file too large: %d bytes (max %d)", n, maxReadFileSize)
+	}
+
+	return buf.Bytes(), nil
 }
 
-// WriteFile writes a file to the container.
-// Uses exec-based approach for compatibility with readonly rootfs + tmpfs.
+// WriteFile writes a file to the container using Docker's CopyToContainer API.
+// This is significantly faster than exec-based tee approach.
 func (r *DockerRuntime) WriteFile(ctx context.Context, id string, path string, content []byte) error {
+	containerName := r.containerName(id)
 	dir := filepath.Dir(path)
+	base := filepath.Base(path)
 
 	// Ensure parent directory exists
 	mkdirResult, err := r.Exec(ctx, id, runtime.ExecOpts{
@@ -44,16 +61,28 @@ func (r *DockerRuntime) WriteFile(ctx context.Context, id string, path string, c
 		return fmt.Errorf("creating dir for %s in %s: %s", path, id, mkdirResult.Stderr)
 	}
 
-	// Write file content via stdin
-	result, err := r.Exec(ctx, id, runtime.ExecOpts{
-		Cmd:   []string{"tee", path},
-		Stdin: bytes.NewReader(content),
-	})
+	// Create tar archive with the file
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	hdr := &tar.Header{
+		Name: base,
+		Mode: 0644,
+		Size: int64(len(content)),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return fmt.Errorf("writing tar header for %s: %w", path, err)
+	}
+	if _, err := tw.Write(content); err != nil {
+		return fmt.Errorf("writing tar content for %s: %w", path, err)
+	}
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("closing tar for %s: %w", path, err)
+	}
+
+	// Copy tar to container
+	err = r.cli.CopyToContainer(ctx, containerName, dir, &buf, container.CopyToContainerOptions{})
 	if err != nil {
 		return fmt.Errorf("writing file %s in %s: %w", path, id, err)
-	}
-	if result.ExitCode != 0 {
-		return fmt.Errorf("writing file %s in %s: %s", path, id, result.Stderr)
 	}
 	return nil
 }

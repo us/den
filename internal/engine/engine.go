@@ -145,7 +145,7 @@ func (e *Engine) StopSandbox(ctx context.Context, id string) error {
 		return err
 	}
 
-	if err := e.runtime.Stop(ctx, id, 10*time.Second); err != nil {
+	if err := e.runtime.Stop(ctx, id, 2*time.Second); err != nil {
 		return fmt.Errorf("stopping sandbox: %w", err)
 	}
 
@@ -165,7 +165,7 @@ func (e *Engine) DestroySandbox(ctx context.Context, id string) error {
 	}
 
 	// Stop (ignore error if already stopped)
-	e.runtime.Stop(ctx, id, 5*time.Second)
+	e.runtime.Stop(ctx, id, 1*time.Second)
 
 	// Remove
 	if err := e.runtime.Remove(ctx, id); err != nil {
