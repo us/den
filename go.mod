@@ -1,4 +1,4 @@
-module github.com/getden/den
+module github.com/us/den
 
 go 1.25.7
 

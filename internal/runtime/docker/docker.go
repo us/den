@@ -13,8 +13,8 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 
-	"github.com/getden/den/internal/runtime"
-	"github.com/getden/den/internal/storage"
+	"github.com/us/den/internal/runtime"
+	"github.com/us/den/internal/storage"
 
 	dockermount "github.com/docker/docker/api/types/mount"
 )

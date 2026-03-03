@@ -14,12 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/getden/den/internal/config"
-	"github.com/getden/den/internal/engine"
-	"github.com/getden/den/internal/runtime"
-	"github.com/getden/den/internal/runtime/docker"
-	"github.com/getden/den/internal/storage"
-	"github.com/getden/den/internal/store"
+	"github.com/us/den/internal/config"
+	"github.com/us/den/internal/engine"
+	"github.com/us/den/internal/runtime"
+	"github.com/us/den/internal/runtime/docker"
+	"github.com/us/den/internal/storage"
+	"github.com/us/den/internal/store"
 )
 
 func getMinIOEndpoint() string {

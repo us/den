@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/getden/den/internal/config"
-	"github.com/getden/den/internal/engine/enginetest"
-	"github.com/getden/den/internal/runtime"
-	"github.com/getden/den/internal/store"
+	"github.com/us/den/internal/config"
+	"github.com/us/den/internal/engine/enginetest"
+	"github.com/us/den/internal/runtime"
+	"github.com/us/den/internal/store"
 )
 
 func newTestEngine(t *testing.T) (*Engine, *enginetest.MockRuntime) {

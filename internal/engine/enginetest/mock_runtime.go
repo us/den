@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/getden/den/internal/runtime"
+	"github.com/us/den/internal/runtime"
 )
 
 // MockRuntime implements runtime.Runtime for testing.

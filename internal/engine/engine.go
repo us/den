@@ -14,10 +14,10 @@ import (
 
 	"github.com/rs/xid"
 
-	"github.com/getden/den/internal/config"
-	"github.com/getden/den/internal/runtime"
-	"github.com/getden/den/internal/storage"
-	"github.com/getden/den/internal/store"
+	"github.com/us/den/internal/config"
+	"github.com/us/den/internal/runtime"
+	"github.com/us/den/internal/storage"
+	"github.com/us/den/internal/store"
 )
 
 var (

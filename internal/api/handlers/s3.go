@@ -12,11 +12,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/getden/den/internal/config"
-	"github.com/getden/den/internal/engine"
-	"github.com/getden/den/internal/pathutil"
-	"github.com/getden/den/internal/runtime"
-	"github.com/getden/den/internal/storage"
+	"github.com/us/den/internal/config"
+	"github.com/us/den/internal/engine"
+	"github.com/us/den/internal/pathutil"
+	"github.com/us/den/internal/runtime"
+	"github.com/us/den/internal/storage"
 )
 
 const (

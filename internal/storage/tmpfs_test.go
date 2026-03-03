@@ -3,8 +3,8 @@ package storage
 import (
 	"testing"
 
-	"github.com/getden/den/internal/config"
-	"github.com/getden/den/internal/runtime"
+	"github.com/us/den/internal/config"
+	"github.com/us/den/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

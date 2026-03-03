@@ -8,8 +8,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/getden/den/internal/pathutil"
-	"github.com/getden/den/internal/runtime"
+	"github.com/us/den/internal/pathutil"
+	"github.com/us/den/internal/runtime"
 )
 
 // ToolHandler processes a tool call and returns a text result or an error.

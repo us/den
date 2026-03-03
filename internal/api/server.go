@@ -11,12 +11,12 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
-	"github.com/getden/den/internal/api/handlers"
-	"github.com/getden/den/internal/api/middleware"
-	"github.com/getden/den/internal/api/ws"
-	"github.com/getden/den/internal/config"
-	"github.com/getden/den/internal/dashboard"
-	"github.com/getden/den/internal/engine"
+	"github.com/us/den/internal/api/handlers"
+	"github.com/us/den/internal/api/middleware"
+	"github.com/us/den/internal/api/ws"
+	"github.com/us/den/internal/config"
+	"github.com/us/den/internal/dashboard"
+	"github.com/us/den/internal/engine"
 )
 
 // Server is the HTTP API server.

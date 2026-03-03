@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/getden/den/internal/config"
-	"github.com/getden/den/internal/pathutil"
-	"github.com/getden/den/internal/runtime"
+	"github.com/us/den/internal/config"
+	"github.com/us/den/internal/pathutil"
+	"github.com/us/den/internal/runtime"
 )
 
 const (

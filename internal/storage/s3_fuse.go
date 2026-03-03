@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/getden/den/internal/runtime"
+	"github.com/us/den/internal/runtime"
 )
 
 // FUSEConfig holds configuration for setting up an S3 FUSE mount inside a container.

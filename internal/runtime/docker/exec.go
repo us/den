@@ -10,7 +10,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/pkg/stdcopy"
 
-	"github.com/getden/den/internal/runtime"
+	"github.com/us/den/internal/runtime"
 )
 
 // Exec runs a command synchronously inside the container and returns the result.

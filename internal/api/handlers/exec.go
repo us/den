@@ -8,8 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/getden/den/internal/engine"
-	"github.com/getden/den/internal/runtime"
+	"github.com/us/den/internal/engine"
+	"github.com/us/den/internal/runtime"
 )
 
 // ExecHandler handles command execution.

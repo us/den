@@ -10,8 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	serverconfig "github.com/getden/den/internal/config"
-	"github.com/getden/den/internal/runtime"
+	serverconfig "github.com/us/den/internal/config"
+	"github.com/us/den/internal/runtime"
 )
 
 // S3Client wraps the AWS S3 client with den-specific operations.

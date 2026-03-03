@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/getden/den/internal/engine"
+	"github.com/us/den/internal/engine"
 )
 
 // StatsHandler handles stats endpoints.

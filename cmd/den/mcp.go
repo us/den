@@ -8,11 +8,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/getden/den/internal/config"
-	"github.com/getden/den/internal/engine"
-	"github.com/getden/den/internal/mcp"
-	"github.com/getden/den/internal/runtime/docker"
-	"github.com/getden/den/internal/store"
+	"github.com/us/den/internal/config"
+	"github.com/us/den/internal/engine"
+	"github.com/us/den/internal/mcp"
+	"github.com/us/den/internal/runtime/docker"
+	"github.com/us/den/internal/store"
 )
 
 func mcpCmd() *cobra.Command {

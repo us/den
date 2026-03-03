@@ -10,13 +10,13 @@ import (
 	"os"
 	"sync"
 
-	"github.com/getden/den/internal/engine"
+	"github.com/us/den/internal/engine"
 )
 
 const (
 	protocolVersion = "2024-11-05"
 	serverName      = "den"
-	serverVersion   = "0.2.0"
+	serverVersion   = "0.0.2"
 )
 
 // JSONRPCRequest represents an incoming JSON-RPC 2.0 request.

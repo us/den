@@ -7,7 +7,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 
-	"github.com/getden/den/internal/runtime"
+	"github.com/us/den/internal/runtime"
 )
 
 func decodeStats(r io.Reader, stats *container.StatsResponse) error {

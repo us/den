@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/getden/den/internal/runtime"
+	"github.com/us/den/internal/runtime"
 )
 
 // Sandbox represents a managed sandbox instance.

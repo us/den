@@ -10,7 +10,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/rs/xid"
 
-	"github.com/getden/den/internal/runtime"
+	"github.com/us/den/internal/runtime"
 )
 
 const (

@@ -11,7 +11,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 
-	"github.com/getden/den/internal/runtime"
+	"github.com/us/den/internal/runtime"
 )
 
 // ReadFile reads a file from the container using Docker's CopyFromContainer API.

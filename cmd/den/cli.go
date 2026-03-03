@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/getden/den/pkg/client"
+	"github.com/us/den/pkg/client"
 )
 
 func getClient(cmd *cobra.Command) *client.Client {

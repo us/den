@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/getden/den/internal/pathutil"
+	"github.com/us/den/internal/pathutil"
 )
 
 const (
