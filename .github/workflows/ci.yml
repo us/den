@@ -81,9 +81,17 @@ jobs:
         working-directory: sdk/typescript
         run: |
           bun install
-          bun test
+          if compgen -G "**/*.test.ts" > /dev/null || compgen -G "**/*.spec.ts" > /dev/null; then
+            bun test
+          else
+            echo "No test files found, skipping"
+          fi
       - name: Python SDK tests
         working-directory: sdk/python
         run: |
           uv sync
-          uv run python -m pytest
+          if find . -name "test_*.py" -o -name "*_test.py" | grep -q .; then
+            uv run python -m pytest
+          else
+            echo "No test files found, skipping"
+          fi
