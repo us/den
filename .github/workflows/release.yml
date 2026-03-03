@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version-file: go.mod
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -26,6 +26,8 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Index on Go proxy
+        run: GOPROXY=proxy.golang.org go list -m github.com/us/den@${{ github.ref_name }}
 
   publish-sdk-ts:
     runs-on: ubuntu-latest
@@ -68,5 +70,7 @@ jobs:
         with:
           context: images/default
           push: true
-          tags: den/default:latest,${{ github.ref_name }}
+          tags: |
+            den/default:latest
+            den/default:${{ github.ref_name }}
           platforms: linux/amd64,linux/arm64

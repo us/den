@@ -45,25 +45,25 @@ changelog:
 
 brews:
   - repository:
-      owner: den
+      owner: us
       name: homebrew-tap
     name: den
-    homepage: "https://github.com/den/den"
+    homepage: "https://github.com/us/den"
     description: "Self-hosted sandbox runtime for AI agents"
     install: |
       bin.install "den"
 
 dockers:
   - image_templates:
-      - "den/den:{{ .Version }}"
-      - "den/den:latest"
+      - "us/den:{{ .Version }}"
+      - "us/den:latest"
     dockerfile: Dockerfile.release
     build_flag_templates:
       - "--platform=linux/amd64"
 
 release:
   github:
-    owner: den
+    owner: us
     name: den
   draft: false
   prerelease: auto
