@@ -1,0 +1,273 @@
+<p align="center">
+  <h1 align="center">Den</h1>
+  <p align="center">Self-hosted sandbox runtime for AI agents</p>
+  <p align="center">
+    <a href="docs/getting-started.md">Getting Started</a> &bull;
+    <a href="docs/api-reference.md">API Reference</a> &bull;
+    <a href="docs/sdk.md">SDKs</a> &bull;
+    <a href="docs/mcp.md">MCP Integration</a> &bull;
+    <a href="docs/configuration.md">Configuration</a>
+  </p>
+  <p align="center">
+    <b>English</b> | <a href="README.zh-CN.md">中文</a>
+  </p>
+</p>
+
+---
+
+Den gives AI agents secure, isolated sandbox environments to execute code. It's the open-source, self-hosted alternative to E2B and similar cloud sandbox services.
+
+**Single binary. Zero config. Works with any AI framework.**
+
+```
+curl -sSL https://get.den.dev | sh
+den serve
+```
+
+## Why Den?
+
+AI agents need to run code, but running untrusted code on your machine is dangerous. Den solves this by providing:
+
+- **Isolated containers** — Each sandbox runs in its own Docker container with dropped capabilities, read-only rootfs, PID limits, and resource constraints
+- **Simple REST API** — Create sandboxes, execute commands, read/write files, manage snapshots — all via HTTP
+- **WebSocket streaming** — Real-time command output for interactive use cases
+- **MCP server** — Native Model Context Protocol support for Claude, Cursor, and other AI tools
+- **Snapshot/Restore** — Save sandbox state and restore it later for reproducible environments
+- **Go + TypeScript + Python SDKs** — First-class client libraries
+
+## Quick Start
+
+### Prerequisites
+
+- Docker running locally
+- Go 1.21+ (to build from source)
+
+### Run the Server
+
+```bash
+# Build and run
+go build -o den ./cmd/den
+./den serve
+
+# Or with custom config
+./den serve --config den.yaml
+```
+
+### Create a Sandbox and Run Code
+
+```bash
+# Create a sandbox
+curl -X POST http://localhost:8080/api/v1/sandboxes \
+  -H 'Content-Type: application/json' \
+  -d '{"image": "ubuntu:22.04"}'
+# → {"id":"abc123","status":"running",...}
+
+# Execute a command
+curl -X POST http://localhost:8080/api/v1/sandboxes/abc123/exec \
+  -H 'Content-Type: application/json' \
+  -d '{"cmd": ["python3", "-c", "print(2+2)"]}'
+# → {"exit_code":0,"stdout":"4\n","stderr":""}
+
+# Write a file
+curl -X PUT 'http://localhost:8080/api/v1/sandboxes/abc123/files?path=/tmp/hello.py' \
+  -d 'print("Hello from sandbox!")'
+
+# Read a file
+curl 'http://localhost:8080/api/v1/sandboxes/abc123/files?path=/tmp/hello.py'
+
+# Destroy the sandbox
+curl -X DELETE http://localhost:8080/api/v1/sandboxes/abc123
+```
+
+### Use with Go SDK
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+
+    client "github.com/den/den/pkg/client"
+)
+
+func main() {
+    c := client.New("http://localhost:8080", client.WithAPIKey("your-key"))
+    ctx := context.Background()
+
+    // Create sandbox
+    sb, _ := c.CreateSandbox(ctx, client.SandboxConfig{
+        Image: "ubuntu:22.04",
+    })
+
+    // Run code
+    result, _ := c.Exec(ctx, sb.ID, client.ExecOpts{
+        Cmd: []string{"echo", "Hello from Go SDK!"},
+    })
+    fmt.Println(result.Stdout)
+
+    // Clean up
+    c.DestroySandbox(ctx, sb.ID)
+}
+```
+
+### Use with MCP (Claude Code, Cursor)
+
+```bash
+# Start the MCP server (stdio mode)
+den mcp
+```
+
+Add to your Claude Code config (`~/.claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "den": {
+      "command": "den",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Now Claude can create sandboxes, run code, and manage files directly.
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Sandbox CRUD** | Create, list, get, stop, destroy containers |
+| **Command Execution** | Sync exec with exit code, stdout, stderr |
+| **Streaming Exec** | WebSocket-based real-time output |
+| **File Operations** | Read, write, list, mkdir, delete files inside sandboxes |
+| **File Upload/Download** | Multipart upload and direct download |
+| **Snapshots** | Save and restore sandbox state via `docker commit` |
+| **Port Forwarding** | Expose sandbox ports to host (bound to 127.0.0.1) |
+| **Resource Limits** | CPU, memory, PID limits per sandbox |
+| **Auto-Expiry** | Sandboxes auto-destroy after configurable timeout |
+| **Rate Limiting** | Per-key rate limiting on all API endpoints |
+| **API Key Auth** | Header-based authentication with constant-time comparison |
+| **MCP Server** | stdio-based Model Context Protocol for AI tool integration |
+| **Dashboard** | Embedded web UI for monitoring and management |
+
+## Security
+
+Den takes security seriously. Every sandbox runs with:
+
+- **Dropped capabilities** — `ALL` capabilities dropped, minimal set added back
+- **Read-only root filesystem** — Only tmpfs mounts (`/tmp`, `/home/sandbox`) are writable
+- **PID limits** — Default 256 processes per container
+- **No new privileges** — `no-new-privileges` security option
+- **Network isolation** — Containers on internal Docker network
+- **Port binding** — Forwarded ports bind to `127.0.0.1` only
+- **Path validation** — Null byte and traversal protection on all file operations
+- **Constant-time auth** — API key comparison resistant to timing attacks
+- **No error leaking** — Internal errors are logged, generic messages returned to clients
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────┐
+│                    Clients                           │
+│  CLI  │  Go SDK  │  TS SDK  │  Python SDK  │  MCP   │
+└───────┴──────────┴──────────┴──────────────┴────────┘
+                          │
+                    ┌─────┴─────┐
+                    │  HTTP API  │  chi router + middleware
+                    │  WebSocket │  gorilla/websocket
+                    └─────┬─────┘
+                          │
+                    ┌─────┴─────┐
+                    │  Engine   │  Lifecycle, reaper, limits
+                    └─────┬─────┘
+                          │
+                ┌─────────┴─────────┐
+                │  Docker Runtime   │  Docker SDK
+                └─────────┬─────────┘
+                          │
+              ┌───────────┴───────────┐
+              │  Docker Containers    │
+              │  (isolated sandboxes) │
+              └───────────────────────┘
+```
+
+## Performance
+
+Benchmarked on Apple Silicon (M-series):
+
+| Operation | Latency |
+|-----------|---------|
+| API health check | < 1ms |
+| Create sandbox | ~100-160ms |
+| Execute command | ~20-30ms |
+| Read file | ~28-30ms |
+| Write file | ~56-70ms |
+| Parallel throughput | ~66 req/s |
+
+## Documentation
+
+- [Getting Started](docs/getting-started.md) — Installation, first sandbox, basic usage
+- [API Reference](docs/api-reference.md) — Complete REST API documentation
+- [Configuration](docs/configuration.md) — All config options explained
+- [SDK Guide](docs/sdk.md) — Go, TypeScript, and Python client libraries
+- [MCP Integration](docs/mcp.md) — Using Den with AI tools
+- [Architecture](docs/architecture.md) — Internal design and security model
+- [CLI Reference](docs/cli.md) — Command-line interface
+
+## CLI
+
+```
+den serve                         # Start API server
+den create --image ubuntu:22.04   # Create sandbox
+den ls                            # List sandboxes
+den exec <id> -- echo hello       # Execute command
+den rm <id>                       # Destroy sandbox
+den snapshot create <id>          # Create snapshot
+den snapshot restore <snap-id>    # Restore snapshot
+den stats                         # System stats
+den mcp                           # Start MCP server
+den version                       # Version info
+```
+
+## Configuration
+
+```yaml
+server:
+  host: "0.0.0.0"
+  port: 8080
+  rate_limit_rps: 10
+  rate_limit_burst: 20
+
+sandbox:
+  default_image: "ubuntu:22.04"
+  default_timeout: "30m"
+  max_sandboxes: 50
+  default_memory: 536870912  # 512MB
+
+auth:
+  enabled: true
+  api_keys:
+    - "your-secret-key"
+```
+
+See [Configuration Guide](docs/configuration.md) for all options.
+
+## Contributing
+
+```bash
+# Clone and build
+git clone https://github.com/den/den
+cd den
+go build ./cmd/den
+
+# Run tests
+go test ./internal/... -race
+
+# Run with race detector
+go test ./internal/... -count=1 -race -v
+```
+
+## License
+
+MIT

@@ -1,0 +1,285 @@
+package client
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"time"
+)
+
+// Client is the Go client for the Den API.
+type Client struct {
+	baseURL    string
+	apiKey     string
+	httpClient *http.Client
+}
+
+// Option configures the Client.
+type Option func(*Client)
+
+// WithAPIKey sets the API key for authentication.
+func WithAPIKey(key string) Option {
+	return func(c *Client) {
+		c.apiKey = key
+	}
+}
+
+// WithHTTPClient sets a custom HTTP client.
+func WithHTTPClient(hc *http.Client) Option {
+	return func(c *Client) {
+		c.httpClient = hc
+	}
+}
+
+// New creates a new Den client.
+func New(baseURL string, opts ...Option) *Client {
+	c := &Client{
+		baseURL: baseURL,
+		httpClient: &http.Client{
+			Timeout: 120 * time.Second,
+		},
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+// SandboxConfig holds sandbox creation options.
+type SandboxConfig struct {
+	Image   string            `json:"image,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	WorkDir string            `json:"workdir,omitempty"`
+	Timeout int               `json:"timeout,omitempty"`
+	CPU     int64             `json:"cpu,omitempty"`
+	Memory  int64             `json:"memory,omitempty"`
+}
+
+// Sandbox represents a sandbox instance.
+type Sandbox struct {
+	ID        string    `json:"id"`
+	Image     string    `json:"image"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at,omitempty"`
+}
+
+// ExecResult holds the result of command execution.
+type ExecResult struct {
+	ExitCode int    `json:"exit_code"`
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+}
+
+// SnapshotInfo holds snapshot metadata.
+type SnapshotInfo struct {
+	ID        string    `json:"id"`
+	SandboxID string    `json:"sandbox_id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// CreateSandbox creates a new sandbox.
+func (c *Client) CreateSandbox(ctx context.Context, cfg SandboxConfig) (*Sandbox, error) {
+	var sb Sandbox
+	if err := c.post(ctx, "/api/v1/sandboxes", cfg, &sb); err != nil {
+		return nil, err
+	}
+	return &sb, nil
+}
+
+// GetSandbox returns a sandbox by ID.
+func (c *Client) GetSandbox(ctx context.Context, id string) (*Sandbox, error) {
+	var sb Sandbox
+	if err := c.get(ctx, "/api/v1/sandboxes/"+id, &sb); err != nil {
+		return nil, err
+	}
+	return &sb, nil
+}
+
+// ListSandboxes returns all sandboxes.
+func (c *Client) ListSandboxes(ctx context.Context) ([]Sandbox, error) {
+	var sbs []Sandbox
+	if err := c.get(ctx, "/api/v1/sandboxes", &sbs); err != nil {
+		return nil, err
+	}
+	return sbs, nil
+}
+
+// DestroySandbox removes a sandbox.
+func (c *Client) DestroySandbox(ctx context.Context, id string) error {
+	return c.delete(ctx, "/api/v1/sandboxes/"+id)
+}
+
+// StopSandbox stops a sandbox.
+func (c *Client) StopSandbox(ctx context.Context, id string) error {
+	return c.post(ctx, "/api/v1/sandboxes/"+id+"/stop", nil, nil)
+}
+
+// ExecOpts holds options for command execution.
+type ExecOpts struct {
+	Cmd     []string          `json:"cmd"`
+	Env     map[string]string `json:"env,omitempty"`
+	WorkDir string            `json:"workdir,omitempty"`
+	Timeout int               `json:"timeout,omitempty"` // seconds
+}
+
+// Exec runs a command in a sandbox.
+func (c *Client) Exec(ctx context.Context, id string, opts ExecOpts) (*ExecResult, error) {
+	var result ExecResult
+	if err := c.post(ctx, "/api/v1/sandboxes/"+id+"/exec", opts, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ReadFile reads a file from a sandbox.
+func (c *Client) ReadFile(ctx context.Context, id string, path string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/sandboxes/"+id+"/files?path="+url.QueryEscape(path), nil)
+	if err != nil {
+		return nil, err
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.parseError(resp)
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+// WriteFile writes a file to a sandbox.
+func (c *Client) WriteFile(ctx context.Context, id string, path string, content []byte) error {
+	req, err := http.NewRequestWithContext(ctx, "PUT", c.baseURL+"/api/v1/sandboxes/"+id+"/files?path="+url.QueryEscape(path), bytes.NewReader(content))
+	if err != nil {
+		return err
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.parseError(resp)
+	}
+	return nil
+}
+
+// CreateSnapshot creates a snapshot of a sandbox.
+func (c *Client) CreateSnapshot(ctx context.Context, id string, name string) (*SnapshotInfo, error) {
+	var snap SnapshotInfo
+	if err := c.post(ctx, "/api/v1/sandboxes/"+id+"/snapshots", map[string]string{"name": name}, &snap); err != nil {
+		return nil, err
+	}
+	return &snap, nil
+}
+
+// RestoreSnapshot restores a sandbox from a snapshot.
+func (c *Client) RestoreSnapshot(ctx context.Context, snapshotID string) (*Sandbox, error) {
+	var sb Sandbox
+	if err := c.post(ctx, "/api/v1/snapshots/"+snapshotID+"/restore", nil, &sb); err != nil {
+		return nil, err
+	}
+	return &sb, nil
+}
+
+// Health checks server health.
+func (c *Client) Health(ctx context.Context) error {
+	return c.get(ctx, "/api/v1/health", nil)
+}
+
+func (c *Client) get(ctx context.Context, path string, result any) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	c.setHeaders(req)
+	return c.do(req, result)
+}
+
+func (c *Client) post(ctx context.Context, path string, body any, result any) error {
+	var bodyReader io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		bodyReader = bytes.NewReader(data)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+path, bodyReader)
+	if err != nil {
+		return err
+	}
+	c.setHeaders(req)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return c.do(req, result)
+}
+
+func (c *Client) delete(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, "DELETE", c.baseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return c.parseError(resp)
+	}
+	return nil
+}
+
+func (c *Client) do(req *http.Request, result any) error {
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return c.parseError(resp)
+	}
+
+	if result != nil {
+		return json.NewDecoder(resp.Body).Decode(result)
+	}
+	return nil
+}
+
+func (c *Client) setHeaders(req *http.Request) {
+	if c.apiKey != "" {
+		req.Header.Set("X-API-Key", c.apiKey)
+	}
+}
+
+func (c *Client) parseError(resp *http.Response) error {
+	body, _ := io.ReadAll(resp.Body)
+	var errResp struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &errResp) == nil && errResp.Error != "" {
+		return fmt.Errorf("API error (%d): %s", resp.StatusCode, errResp.Error)
+	}
+	return fmt.Errorf("API error (%d): %s", resp.StatusCode, string(body))
+}

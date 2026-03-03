@@ -1,0 +1,33 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+
+runtime:
+  backend: "docker"
+  docker_host: "" # uses DOCKER_HOST env or default socket
+  network_id: "den-net"
+
+sandbox:
+  default_image: "den/default:latest"
+  default_timeout: "30m"
+  max_sandboxes: 50
+  default_cpu: 1000000000 # 1 core (in NanoCPUs)
+  default_memory: 536870912 # 512MB
+  default_pid_limit: 256
+  warm_pool_size: 0
+
+store:
+  path: "den.db"
+
+auth:
+  enabled: false
+  api_keys:
+    - "your-api-key-here"
+
+log:
+  level: "info" # debug, info, warn, error
+  format: "text" # text, json

@@ -1,0 +1,155 @@
+package config
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/knadh/koanf/parsers/yaml"
+	"github.com/knadh/koanf/providers/env"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/v2"
+)
+
+// Config holds all configuration for the den server.
+type Config struct {
+	Server   ServerConfig   `koanf:"server"`
+	Runtime  RuntimeConfig  `koanf:"runtime"`
+	Sandbox  SandboxConfig  `koanf:"sandbox"`
+	Store    StoreConfig    `koanf:"store"`
+	Auth     AuthConfig     `koanf:"auth"`
+	Log      LogConfig      `koanf:"log"`
+}
+
+// ServerConfig holds HTTP server settings.
+type ServerConfig struct {
+	Host           string   `koanf:"host"`
+	Port           int      `koanf:"port"`
+	AllowedOrigins []string `koanf:"allowed_origins"`
+	RateLimitRPS   float64  `koanf:"rate_limit_rps"`
+	RateLimitBurst int      `koanf:"rate_limit_burst"`
+	TLS            struct {
+		Enabled  bool   `koanf:"enabled"`
+		CertFile string `koanf:"cert_file"`
+		KeyFile  string `koanf:"key_file"`
+	} `koanf:"tls"`
+}
+
+// RuntimeConfig holds runtime backend settings.
+type RuntimeConfig struct {
+	Backend    string `koanf:"backend"` // "docker"
+	DockerHost string `koanf:"docker_host"`
+	NetworkID  string `koanf:"network_id"`
+}
+
+// SandboxConfig holds default sandbox settings.
+type SandboxConfig struct {
+	DefaultImage   string        `koanf:"default_image"`
+	DefaultTimeout time.Duration `koanf:"default_timeout"`
+	MaxSandboxes   int           `koanf:"max_sandboxes"`
+	DefaultCPU     int64         `koanf:"default_cpu"`     // NanoCPUs
+	DefaultMemory  int64         `koanf:"default_memory"`  // bytes
+	DefaultPidLimit int64        `koanf:"default_pid_limit"`
+	WarmPoolSize   int           `koanf:"warm_pool_size"`
+}
+
+// StoreConfig holds state persistence settings.
+type StoreConfig struct {
+	Path string `koanf:"path"`
+}
+
+// AuthConfig holds authentication settings.
+type AuthConfig struct {
+	APIKeys []string `koanf:"api_keys"`
+	Enabled bool     `koanf:"enabled"`
+}
+
+// LogConfig holds logging settings.
+type LogConfig struct {
+	Level  string `koanf:"level"` // "debug", "info", "warn", "error"
+	Format string `koanf:"format"` // "text", "json"
+}
+
+// DefaultConfig returns a Config with sensible defaults.
+func DefaultConfig() *Config {
+	return &Config{
+		Server: ServerConfig{
+			Host:           "0.0.0.0",
+			Port:           8080,
+			AllowedOrigins: []string{"http://localhost:8080", "http://127.0.0.1:8080"},
+			RateLimitRPS:   10,
+			RateLimitBurst: 20,
+		},
+		Runtime: RuntimeConfig{
+			Backend:   "docker",
+			NetworkID: "den-net",
+		},
+		Sandbox: SandboxConfig{
+			DefaultImage:    "den/default:latest",
+			DefaultTimeout:  30 * time.Minute,
+			MaxSandboxes:    50,
+			DefaultCPU:      1_000_000_000, // 1 core
+			DefaultMemory:   512 * 1024 * 1024, // 512MB
+			DefaultPidLimit: 256,
+			WarmPoolSize:    0,
+		},
+		Store: StoreConfig{
+			Path: "den.db",
+		},
+		Auth: AuthConfig{
+			Enabled: false,
+		},
+		Log: LogConfig{
+			Level:  "info",
+			Format: "text",
+		},
+	}
+}
+
+// Validate checks the config for obvious misconfigurations.
+func (c *Config) Validate() error {
+	if c.Server.Port <= 0 || c.Server.Port > 65535 {
+		return fmt.Errorf("invalid server port: %d", c.Server.Port)
+	}
+	if c.Sandbox.MaxSandboxes <= 0 {
+		return fmt.Errorf("max_sandboxes must be positive")
+	}
+	if c.Sandbox.DefaultTimeout <= 0 {
+		return fmt.Errorf("default_timeout must be positive")
+	}
+	if c.Sandbox.DefaultImage == "" {
+		return fmt.Errorf("default_image is required")
+	}
+	return nil
+}
+
+// Load reads configuration from a YAML file and environment variables.
+// Environment variables are prefixed with DEN_ and use __ as separator.
+// For example: DEN_SERVER__PORT=9090
+func Load(path string) (*Config, error) {
+	k := koanf.New(".")
+	cfg := DefaultConfig()
+
+	// Load from YAML file if provided
+	if path != "" {
+		if err := k.Load(file.Provider(path), yaml.Parser()); err != nil {
+			return nil, fmt.Errorf("loading config file %s: %w", path, err)
+		}
+	}
+
+	// Load from environment variables (override file settings)
+	if err := k.Load(env.Provider("DEN_", ".", func(s string) string {
+		return strings.Replace(
+			strings.ToLower(strings.TrimPrefix(s, "DEN_")),
+			"__", ".", -1,
+		)
+	}), nil); err != nil {
+		return nil, fmt.Errorf("loading env config: %w", err)
+	}
+
+	if err := k.Unmarshal("", cfg); err != nil {
+		return nil, fmt.Errorf("unmarshalling config: %w", err)
+	}
+
+	return cfg, nil
+}

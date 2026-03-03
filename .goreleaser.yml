@@ -1,0 +1,69 @@
+version: 2
+
+project_name: den
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: den
+    main: ./cmd/den
+    binary: den
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.buildDate={{.Date}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+brews:
+  - repository:
+      owner: den
+      name: homebrew-tap
+    name: den
+    homepage: "https://github.com/den/den"
+    description: "Self-hosted sandbox runtime for AI agents"
+    install: |
+      bin.install "den"
+
+dockers:
+  - image_templates:
+      - "den/den:{{ .Version }}"
+      - "den/den:latest"
+    dockerfile: Dockerfile.release
+    build_flag_templates:
+      - "--platform=linux/amd64"
+
+release:
+  github:
+    owner: den
+    name: den
+  draft: false
+  prerelease: auto

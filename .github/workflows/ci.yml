@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: golangci-lint
+        uses: golangci-lint/golangci-lint-action@v6
+        with:
+          version: latest
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Run unit tests
+        run: go test ./internal/... -short -v -race
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    strategy:
+      matrix:
+        goos: [linux, darwin]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -o den-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/den
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: den-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: den-${{ matrix.goos }}-${{ matrix.goarch }}
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: github.event_name == 'push'
+    services:
+      docker:
+        image: docker:dind
+        options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Run integration tests
+        run: go test ./internal/... -v -run Integration
+
+  sdk-test:
+    runs-on: ubuntu-latest
+    needs: [integration-test]
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: astral-sh/setup-uv@v5
+      - name: TypeScript SDK tests
+        working-directory: sdk/typescript
+        run: |
+          bun install
+          bun test
+      - name: Python SDK tests
+        working-directory: sdk/python
+        run: |
+          uv sync
+          uv run python -m pytest

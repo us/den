@@ -1,0 +1,49 @@
+# Binaries
+bin/
+den
+*.exe
+
+# Database
+*.db
+
+# Config
+den.yaml
+!den.example.yaml
+
+# Go
+vendor/
+
+# Node
+node_modules/
+dist/
+!internal/dashboard/dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+coverage.out
+coverage.html
+ws_test*.py
+.venv-test/
+
+# Temp
+FIXPLAN.md
+PROGRESS.md
+
+# GoReleaser
+dist/
