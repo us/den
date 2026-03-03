@@ -1,6 +1,6 @@
 # Binaries
 bin/
-den
+/den
 *.exe
 
 # Database

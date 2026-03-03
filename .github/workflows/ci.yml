@@ -89,8 +89,8 @@ jobs:
       - name: Python SDK tests
         working-directory: sdk/python
         run: |
-          uv sync
-          if find . -type f \( -name "test_*.py" -o -name "*_test.py" \) | grep -q .; then
+          uv sync --group dev
+          if find . -type f \( -name "test_*.py" -o -name "*_test.py" \) -not -path './.venv/*' | grep -q .; then
             uv run python -m pytest
           else
             echo "No test files found, skipping"
