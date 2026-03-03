@@ -19,6 +19,21 @@ sandbox:
   default_memory: 536870912 # 512MB
   default_pid_limit: 256
   warm_pool_size: 0
+  allow_volumes: true
+  allow_shared_volumes: true
+  allow_s3: true
+  allow_s3_fuse: false          # Requires SYS_ADMIN capability
+  allow_host_binds: false       # Never enable in production
+  max_volumes_per_sandbox: 5
+  default_tmpfs:
+    - path: "/tmp"
+      size: "256m"
+    - path: "/home/sandbox"
+      size: "512m"
+    - path: "/run"
+      size: "64m"
+    - path: "/var/tmp"
+      size: "128m"
 
 store:
   path: "den.db"
@@ -31,3 +46,9 @@ auth:
 log:
   level: "info" # debug, info, warn, error
   format: "text" # text, json
+
+s3:
+  endpoint: ""                  # S3-compatible endpoint (e.g. "http://localhost:9000" for MinIO)
+  region: "us-east-1"
+  access_key: ""
+  secret_key: ""

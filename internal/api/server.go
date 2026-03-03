@@ -100,6 +100,7 @@ func RegisterRoutes(r chi.Router, eng *engine.Engine, cfg *config.Config, logger
 	ph := handlers.NewPortHandler(eng, logger)
 	snapH := handlers.NewSnapshotHandler(eng, logger)
 	statsH := handlers.NewStatsHandler(eng, logger)
+	s3H := handlers.NewS3Handler(eng, cfg.S3, logger)
 	wsH := ws.NewExecHandler(eng, logger, cfg.Server.AllowedOrigins)
 
 	r.Route("/api/v1", func(r chi.Router) {
@@ -130,6 +131,10 @@ func RegisterRoutes(r chi.Router, eng *engine.Engine, cfg *config.Config, logger
 		r.Delete("/sandboxes/{id}/files", fh.RemoveFile)
 		r.Post("/sandboxes/{id}/files/upload", fh.Upload)
 		r.Get("/sandboxes/{id}/files/download", fh.Download)
+
+		// S3 operations
+		r.Post("/sandboxes/{id}/files/s3-import", s3H.Import)
+		r.Post("/sandboxes/{id}/files/s3-export", s3H.Export)
 
 		// Port forwarding
 		r.Get("/sandboxes/{id}/ports", ph.List)

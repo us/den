@@ -119,7 +119,7 @@ func serveCmd() *cobra.Command {
 			}
 
 			// Setup engine
-			eng := engine.NewEngine(rt, st, cfg.Sandbox, logger)
+			eng := engine.NewEngine(rt, st, cfg.Sandbox, cfg.S3, logger)
 
 			// Setup API server
 			srv := api.NewServer(eng, cfg, logger)

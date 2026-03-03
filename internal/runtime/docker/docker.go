@@ -14,6 +14,9 @@ import (
 	"github.com/docker/go-connections/nat"
 
 	"github.com/getden/den/internal/runtime"
+	"github.com/getden/den/internal/storage"
+
+	dockermount "github.com/docker/docker/api/types/mount"
 )
 
 const (
@@ -135,22 +138,34 @@ func (r *DockerRuntime) Create(ctx context.Context, id string, cfg runtime.Sandb
 		containerCfg.Cmd = cfg.Cmd
 	}
 
+	// Build tmpfs map from storage config (computed by engine)
+	tmpfsMap := cfg.TmpfsMap
+
+	// Build Docker volume mounts
+	var mounts []dockermount.Mount
+	if cfg.Storage != nil {
+		for _, vol := range cfg.Storage.Volumes {
+			mounts = append(mounts, dockermount.Mount{
+				Type:     dockermount.TypeVolume,
+				Source:   storage.NamespacedVolumeName(vol.Name),
+				Target:   vol.MountPath,
+				ReadOnly: vol.ReadOnly,
+			})
+		}
+	}
+
 	hostCfg := &container.HostConfig{
 		PortBindings: portBindings,
 		Resources: container.Resources{
 			NanoCPUs: cfg.CPU,
 			Memory:   cfg.Memory,
 		},
-		SecurityOpt: []string{"no-new-privileges"},
-		CapDrop:     []string{"ALL"},
-		CapAdd:      []string{"NET_BIND_SERVICE", "CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"},
+		SecurityOpt:    []string{"no-new-privileges"},
+		CapDrop:        []string{"ALL"},
+		CapAdd:         []string{"NET_BIND_SERVICE", "CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"},
 		ReadonlyRootfs: true,
-		Tmpfs: map[string]string{
-			"/tmp":          "rw,noexec,nosuid,size=256m",
-			"/home/sandbox": "rw,noexec,nosuid,size=512m",
-			"/run":          "rw,noexec,nosuid,size=64m",
-			"/var/tmp":      "rw,noexec,nosuid,size=128m",
-		},
+		Tmpfs:          tmpfsMap,
+		Mounts:         mounts,
 	}
 	if cfg.PidLimit > 0 {
 		hostCfg.PidsLimit = &cfg.PidLimit
@@ -195,7 +210,7 @@ func (r *DockerRuntime) Stop(ctx context.Context, id string, timeout time.Durati
 func (r *DockerRuntime) Remove(ctx context.Context, id string) error {
 	return r.cli.ContainerRemove(ctx, r.containerName(id), container.RemoveOptions{
 		Force:         true,
-		RemoveVolumes: true,
+		RemoveVolumes: false, // Preserve named volumes (may be shared between sandboxes)
 	})
 }
 

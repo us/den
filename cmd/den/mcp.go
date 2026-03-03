@@ -56,7 +56,7 @@ func mcpCmd() *cobra.Command {
 
 			rt.EnsureNetwork(ctx)
 
-			eng := engine.NewEngine(rt, st, cfg.Sandbox, logger)
+			eng := engine.NewEngine(rt, st, cfg.Sandbox, cfg.S3, logger)
 
 			srv := mcp.NewServer(eng, logger)
 			return srv.Run(ctx)

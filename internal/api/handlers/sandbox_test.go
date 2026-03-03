@@ -37,7 +37,7 @@ func newTestEngine(t *testing.T) *engine.Engine {
 		DefaultPidLimit: 256,
 	}
 
-	eng := engine.NewEngine(mock, st, cfg, slog.Default())
+	eng := engine.NewEngine(mock, st, cfg, config.S3Config{}, slog.Default())
 	return eng
 }
 

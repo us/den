@@ -1,10 +1,14 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +16,7 @@ import (
 
 	"github.com/getden/den/internal/config"
 	"github.com/getden/den/internal/runtime"
+	"github.com/getden/den/internal/storage"
 	"github.com/getden/den/internal/store"
 )
 
@@ -26,6 +31,7 @@ type Engine struct {
 	runtime      runtime.Runtime
 	store        store.Store
 	config       config.SandboxConfig
+	s3Config     config.S3Config
 	sandboxes    sync.Map // map[string]*Sandbox
 	mu           sync.Mutex
 	count        int
@@ -35,11 +41,12 @@ type Engine struct {
 }
 
 // NewEngine creates a new Engine.
-func NewEngine(rt runtime.Runtime, st store.Store, cfg config.SandboxConfig, logger *slog.Logger) *Engine {
+func NewEngine(rt runtime.Runtime, st store.Store, cfg config.SandboxConfig, s3Cfg config.S3Config, logger *slog.Logger) *Engine {
 	e := &Engine{
 		runtime:    rt,
 		store:      st,
 		config:     cfg,
+		s3Config:   s3Cfg,
 		logger:     logger,
 		stopReaper: make(chan struct{}),
 	}
@@ -59,6 +66,11 @@ func (e *Engine) CreateSandbox(ctx context.Context, cfg runtime.SandboxConfig) (
 	if e.count >= e.config.MaxSandboxes {
 		e.mu.Unlock()
 		return nil, ErrLimitReached
+	}
+	// Validate storage under mutex to prevent TOCTOU race on shared volume checks
+	if err := e.validateStorage(cfg.Storage); err != nil {
+		e.mu.Unlock()
+		return nil, fmt.Errorf("invalid storage config: %w", err)
 	}
 	e.count++
 	e.mu.Unlock()
@@ -80,6 +92,14 @@ func (e *Engine) CreateSandbox(ctx context.Context, cfg runtime.SandboxConfig) (
 	if timeout == 0 {
 		timeout = e.config.DefaultTimeout
 	}
+
+	// Build tmpfs map from defaults + per-sandbox overrides
+	tmpfsMap, err := storage.BuildTmpfsMap(cfg.Storage, e.config.DefaultTmpfs)
+	if err != nil {
+		e.decrementCount()
+		return nil, fmt.Errorf("building tmpfs config: %w", err)
+	}
+	cfg.TmpfsMap = tmpfsMap
 
 	id := xid.New().String()
 
@@ -109,10 +129,18 @@ func (e *Engine) CreateSandbox(ctx context.Context, cfg runtime.SandboxConfig) (
 
 	sandbox.SetStatus(runtime.StatusRunning)
 
-	// Save to store
+	// Store sandbox before hooks so it's discoverable during S3 init
 	e.sandboxes.Store(id, sandbox)
 	if err := e.saveSandbox(sandbox); err != nil {
 		e.logger.Warn("failed to save sandbox to store", "id", id, "error", err)
+	}
+
+	// S3 hooks: download files after container start
+	if cfg.Storage != nil && cfg.Storage.S3 != nil && cfg.Storage.S3.Mode == runtime.S3SyncModeHooks {
+		if err := e.s3HookInit(ctx, id, cfg.Storage.S3); err != nil {
+			e.logger.Warn("s3 hook init failed", "id", id, "error", err)
+			// Non-fatal: sandbox is still usable
+		}
 	}
 
 	e.logger.Info("sandbox created", "id", id, "image", cfg.Image)
@@ -159,9 +187,18 @@ func (e *Engine) StopSandbox(ctx context.Context, id string) error {
 
 // DestroySandbox stops and removes a sandbox.
 func (e *Engine) DestroySandbox(ctx context.Context, id string) error {
-	_, err := e.GetSandbox(id)
-	if err != nil {
-		return err
+	// LoadAndDelete to prevent concurrent destroy of the same sandbox
+	v, loaded := e.sandboxes.LoadAndDelete(id)
+	if !loaded {
+		return ErrNotFound
+	}
+	sb := v.(*Sandbox)
+
+	// S3 hooks: upload files before stopping container (needs running container to read files)
+	if sb.Config.Storage != nil && sb.Config.Storage.S3 != nil && sb.Config.Storage.S3.Mode == runtime.S3SyncModeHooks {
+		if err := e.s3HookCleanup(ctx, id, sb.Config.Storage.S3); err != nil {
+			e.logger.Warn("s3 hook cleanup failed", "id", id, "error", err)
+		}
 	}
 
 	// Stop (ignore error if already stopped)
@@ -169,10 +206,11 @@ func (e *Engine) DestroySandbox(ctx context.Context, id string) error {
 
 	// Remove
 	if err := e.runtime.Remove(ctx, id); err != nil {
+		// Restore sandbox in map on failure so it can be retried
+		e.sandboxes.Store(id, sb)
 		return fmt.Errorf("removing sandbox: %w", err)
 	}
 
-	e.sandboxes.Delete(id)
 	if err := e.store.DeleteSandbox(id); err != nil {
 		e.logger.Warn("failed to delete sandbox from store", "id", id, "error", err)
 	}
@@ -347,9 +385,14 @@ func (e *Engine) Stats(ctx context.Context, id string) (*runtime.SandboxStats, e
 }
 
 // Shutdown gracefully stops all sandboxes.
-func (e *Engine) Shutdown(ctx context.Context) {
+// Uses a detached context so shutdown is not cancelled by the caller's context.
+func (e *Engine) Shutdown(_ context.Context) {
 	e.shutdownOnce.Do(func() {
 		close(e.stopReaper)
+
+		// Use background context to ensure cleanup completes even if caller cancels
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 
 		// Collect IDs first to avoid concurrent modification during Range
 		var ids []string
@@ -358,11 +401,18 @@ func (e *Engine) Shutdown(ctx context.Context) {
 			return true
 		})
 
+		// Destroy sandboxes in parallel for faster shutdown
+		var wg sync.WaitGroup
 		for _, id := range ids {
-			if err := e.DestroySandbox(ctx, id); err != nil {
-				e.logger.Warn("failed to destroy sandbox on shutdown", "id", id, "error", err)
-			}
+			wg.Add(1)
+			go func(id string) {
+				defer wg.Done()
+				if err := e.DestroySandbox(shutdownCtx, id); err != nil {
+					e.logger.Warn("failed to destroy sandbox on shutdown", "id", id, "error", err)
+				}
+			}(id)
 		}
+		wg.Wait()
 	})
 }
 
@@ -442,6 +492,244 @@ func (e *Engine) saveSandbox(sandbox *Sandbox) error {
 		CreatedAt: sandbox.CreatedAt,
 		ExpiresAt: sandbox.ExpiresAt,
 	})
+}
+
+const (
+	// maxS3SyncObjects limits the number of objects downloaded during S3 hook init.
+	maxS3SyncObjects = 1000
+	// maxS3ObjectSize limits the size of a single object during S3 hook init (100MB).
+	maxS3ObjectSize = 100 * 1024 * 1024
+	// s3HookTimeout is the timeout for S3 hook operations.
+	s3HookTimeout = 5 * time.Minute
+)
+
+func (e *Engine) s3HookInit(ctx context.Context, id string, s3Cfg *runtime.S3SyncConfig) error {
+	ctx, cancel := context.WithTimeout(ctx, s3HookTimeout)
+	defer cancel()
+
+	creds, err := storage.ResolveS3Credentials(s3Cfg, e.s3Config)
+	if err != nil {
+		return err
+	}
+
+	client, err := storage.NewS3Client(ctx, creds, e.logger)
+	if err != nil {
+		return err
+	}
+
+	syncPath := s3Cfg.SyncPath
+	if syncPath == "" {
+		syncPath = "/home/sandbox"
+	}
+
+	// List objects under the prefix and download each
+	prefix := s3Cfg.Prefix
+	keys, err := client.ListObjects(ctx, creds.Bucket, prefix, maxS3SyncObjects)
+	if err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	var synced, skipped int
+	for _, key := range keys {
+		body, size, err := client.Download(ctx, creds.Bucket, key)
+		if err != nil {
+			e.logger.Warn("s3 hook: failed to download object", "key", key, "error", err)
+			skipped++
+			continue
+		}
+
+		// Skip objects that exceed size limit based on ContentLength header
+		if size > maxS3ObjectSize {
+			body.Close()
+			e.logger.Warn("s3 hook: object too large, skipping", "key", key, "size", size)
+			skipped++
+			continue
+		}
+
+		// Limit download size to prevent memory exhaustion
+		buf.Reset()
+		limited := io.LimitReader(body, maxS3ObjectSize+1)
+		n, err := buf.ReadFrom(limited)
+		body.Close()
+		if err != nil {
+			skipped++
+			continue
+		}
+		if n > maxS3ObjectSize {
+			e.logger.Warn("s3 hook: object too large, skipping", "key", key, "size", n)
+			skipped++
+			continue
+		}
+
+		// Strip prefix from key for relative path and validate against traversal
+		relPath := key
+		if prefix != "" {
+			relPath = strings.TrimPrefix(key, prefix)
+			relPath = strings.TrimPrefix(relPath, "/")
+		}
+		destPath := filepath.Join(syncPath, filepath.Clean("/"+relPath))
+		if !strings.HasPrefix(destPath, syncPath+"/") && destPath != syncPath {
+			e.logger.Warn("s3 hook: path traversal detected, skipping", "key", key, "dest", destPath)
+			skipped++
+			continue
+		}
+
+		if err := e.runtime.WriteFile(ctx, id, destPath, buf.Bytes()); err != nil {
+			e.logger.Warn("s3 hook: failed to write file", "path", destPath, "error", err)
+			skipped++
+			continue
+		}
+		synced++
+	}
+
+	e.logger.Info("s3 hook init completed", "id", id, "synced", synced, "skipped", skipped, "total", len(keys))
+	return nil
+}
+
+func (e *Engine) s3HookCleanup(_ context.Context, id string, s3Cfg *runtime.S3SyncConfig) error {
+	// Use background context: parent ctx may already be cancelled during destroy
+	ctx, cancel := context.WithTimeout(context.Background(), s3HookTimeout)
+	defer cancel()
+
+	creds, err := storage.ResolveS3Credentials(s3Cfg, e.s3Config)
+	if err != nil {
+		return err
+	}
+
+	client, err := storage.NewS3Client(ctx, creds, e.logger)
+	if err != nil {
+		return err
+	}
+
+	syncPath := s3Cfg.SyncPath
+	if syncPath == "" {
+		syncPath = "/home/sandbox"
+	}
+
+	prefix := s3Cfg.Prefix
+
+	// Recursively upload files from sync path
+	return e.s3UploadDir(ctx, id, client, creds.Bucket, prefix, syncPath, syncPath, 0)
+}
+
+const maxUploadDepth = 20
+
+// s3UploadDir recursively uploads all files in a directory to S3.
+func (e *Engine) s3UploadDir(ctx context.Context, id string, client *storage.S3Client, bucket, prefix, basePath, dirPath string, depth int) error {
+	if depth > maxUploadDepth {
+		return fmt.Errorf("maximum directory depth %d exceeded at %s", maxUploadDepth, dirPath)
+	}
+	files, err := e.runtime.ListDir(ctx, id, dirPath)
+	if err != nil {
+		return fmt.Errorf("listing %s: %w", dirPath, err)
+	}
+
+	for _, f := range files {
+		if f.IsDir {
+			if err := e.s3UploadDir(ctx, id, client, bucket, prefix, basePath, f.Path, depth+1); err != nil {
+				e.logger.Warn("s3 hook: failed to upload directory", "path", f.Path, "error", err)
+			}
+			continue
+		}
+		data, err := e.runtime.ReadFile(ctx, id, f.Path)
+		if err != nil {
+			e.logger.Warn("s3 hook: failed to read file for upload", "path", f.Path, "error", err)
+			continue
+		}
+		if int64(len(data)) > maxS3ObjectSize {
+			e.logger.Warn("s3 hook: file too large for upload, skipping", "path", f.Path, "size", len(data))
+			continue
+		}
+
+		key := prefix + strings.TrimPrefix(f.Path, basePath)
+		if err := client.Upload(ctx, bucket, key, bytes.NewReader(data), int64(len(data))); err != nil {
+			e.logger.Warn("s3 hook: failed to upload file", "key", key, "error", err)
+		}
+	}
+	return nil
+}
+
+func (e *Engine) validateStorage(sc *runtime.StorageConfig) error {
+	if sc == nil {
+		return nil
+	}
+
+	// Validate volumes
+	if len(sc.Volumes) > 0 {
+		if !e.config.AllowVolumes {
+			return fmt.Errorf("volume mounts are not allowed by server policy")
+		}
+		if len(sc.Volumes) > e.config.MaxVolumesPerSandbox {
+			return fmt.Errorf("too many volumes: %d exceeds limit of %d", len(sc.Volumes), e.config.MaxVolumesPerSandbox)
+		}
+
+		// Track volume names to detect shared volumes
+		seen := make(map[string]bool)
+		for _, vol := range sc.Volumes {
+			if err := storage.ValidateVolumeName(vol.Name); err != nil {
+				return fmt.Errorf("invalid volume name %q: %w", vol.Name, err)
+			}
+			if err := storage.ValidateVolumeMountPath(vol.MountPath); err != nil {
+				return fmt.Errorf("invalid volume mount path %q: %w", vol.MountPath, err)
+			}
+			if seen[vol.Name] {
+				return fmt.Errorf("duplicate volume name %q", vol.Name)
+			}
+			seen[vol.Name] = true
+		}
+
+		// Check shared volume policy — if a volume is used by other sandboxes
+		if !e.config.AllowSharedVolumes {
+			for _, vol := range sc.Volumes {
+				if e.isVolumeInUse(vol.Name) {
+					return fmt.Errorf("shared volumes are not allowed by server policy (volume %q is in use)", vol.Name)
+				}
+			}
+		}
+	}
+
+	// Validate S3 config
+	if sc.S3 != nil {
+		if !e.config.AllowS3 {
+			return fmt.Errorf("S3 sync is not allowed by server policy")
+		}
+		if sc.S3.Mode == runtime.S3SyncModeFUSE && !e.config.AllowS3FUSE {
+			return fmt.Errorf("S3 FUSE mount is not allowed by server policy")
+		}
+		// Validate SyncPath
+		if sc.S3.SyncPath != "" {
+			if err := storage.ValidateVolumeMountPath(sc.S3.SyncPath); err != nil {
+				return fmt.Errorf("invalid S3 sync_path %q: %w", sc.S3.SyncPath, err)
+			}
+		}
+		// Validate MountPath
+		if sc.S3.MountPath != "" {
+			if err := storage.ValidateVolumeMountPath(sc.S3.MountPath); err != nil {
+				return fmt.Errorf("invalid S3 mount_path %q: %w", sc.S3.MountPath, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// isVolumeInUse checks if a volume name is already mounted by another sandbox.
+func (e *Engine) isVolumeInUse(volumeName string) bool {
+	inUse := false
+	e.sandboxes.Range(func(_, v any) bool {
+		sb := v.(*Sandbox)
+		if sb.Config.Storage != nil {
+			for _, vol := range sb.Config.Storage.Volumes {
+				if vol.Name == volumeName {
+					inUse = true
+					return false
+				}
+			}
+		}
+		return true
+	})
+	return inUse
 }
 
 func (e *Engine) decrementCount() {

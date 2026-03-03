@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,44 @@ class PortMapping(BaseModel):
     protocol: str = "tcp"
 
 
+class VolumeMount(BaseModel):
+    """A named Docker volume to mount into a sandbox."""
+
+    name: str
+    mount_path: str
+    read_only: bool = False
+
+
+class TmpfsMount(BaseModel):
+    """A tmpfs filesystem to mount inside a sandbox."""
+
+    path: str
+    size: str  # "256m", "1g"
+    options: str | None = None  # "rw,noexec,nosuid"
+
+
+class S3SyncConfig(BaseModel):
+    """S3 synchronization configuration for a sandbox."""
+
+    endpoint: str | None = None
+    bucket: str
+    prefix: str | None = None
+    region: str | None = None
+    access_key: str | None = None
+    secret_key: str | None = None
+    mode: Literal["hooks", "fuse", "on_demand"]
+    mount_path: str | None = None  # FUSE mode
+    sync_path: str | None = None  # Hooks mode
+
+
+class StorageConfig(BaseModel):
+    """Storage configuration for a sandbox."""
+
+    volumes: list[VolumeMount] | None = None
+    tmpfs: list[TmpfsMount] | None = None
+    s3: S3SyncConfig | None = None
+
+
 class SandboxConfig(BaseModel):
     """Configuration for creating a new sandbox."""
 
@@ -25,6 +64,7 @@ class SandboxConfig(BaseModel):
     cpu: int | None = None  # NanoCPUs (1e9 = 1 core)
     memory: int | None = None  # bytes
     ports: list[PortMapping] | None = None
+    storage: StorageConfig | None = None
 
 
 class SandboxInfo(BaseModel):
@@ -90,6 +130,46 @@ class ExecOpts(BaseModel):
     env: dict[str, str] | None = None
     workdir: str | None = None
     timeout: int | None = None  # seconds
+
+
+class S3ImportRequest(BaseModel):
+    """Request body for S3 import operation."""
+
+    bucket: str
+    key: str
+    dest_path: str
+    endpoint: str | None = None
+    access_key: str | None = None
+    secret_key: str | None = None
+    region: str | None = None
+
+
+class S3ImportResponse(BaseModel):
+    """Response from an S3 import operation."""
+
+    success: bool
+    bytes_downloaded: int
+    path: str
+
+
+class S3ExportRequest(BaseModel):
+    """Request body for S3 export operation."""
+
+    source_path: str
+    bucket: str
+    key: str
+    endpoint: str | None = None
+    access_key: str | None = None
+    secret_key: str | None = None
+    region: str | None = None
+
+
+class S3ExportResponse(BaseModel):
+    """Response from an S3 export operation."""
+
+    success: bool
+    bytes_uploaded: int
+    s3_key: str
 
 
 class ErrorResponse(BaseModel):

@@ -1,3 +1,58 @@
+/** A named Docker volume to mount into a sandbox. */
+export interface VolumeMount {
+  /** Volume name (alphanumeric, dots, dashes, underscores). */
+  name: string;
+  /** Absolute path inside the sandbox to mount the volume. */
+  mount_path: string;
+  /** Whether the volume should be mounted read-only. */
+  read_only?: boolean;
+}
+
+/** A tmpfs filesystem to mount inside a sandbox. */
+export interface TmpfsMount {
+  /** Absolute path inside the sandbox. */
+  path: string;
+  /** Size string (e.g. "256m", "1g"). */
+  size: string;
+  /** Mount options (e.g. "rw,noexec,nosuid"). */
+  options?: string;
+}
+
+/** S3 synchronization mode. */
+export type S3SyncMode = "hooks" | "fuse" | "on_demand";
+
+/** S3 synchronization configuration for a sandbox. */
+export interface S3SyncConfig {
+  /** S3-compatible endpoint URL (optional, falls back to server config). */
+  endpoint?: string;
+  /** S3 bucket name. */
+  bucket: string;
+  /** Key prefix for S3 objects. */
+  prefix?: string;
+  /** AWS region. */
+  region?: string;
+  /** Access key ID (optional, falls back to server config). */
+  access_key?: string;
+  /** Secret access key (optional, falls back to server config). */
+  secret_key?: string;
+  /** Synchronization mode. */
+  mode: S3SyncMode;
+  /** FUSE mount path inside the sandbox. */
+  mount_path?: string;
+  /** Local path to sync (hooks mode). */
+  sync_path?: string;
+}
+
+/** Storage configuration for a sandbox. */
+export interface StorageConfig {
+  /** Named Docker volumes to mount. */
+  volumes?: VolumeMount[];
+  /** Tmpfs mounts (overrides server defaults). */
+  tmpfs?: TmpfsMount[];
+  /** S3 synchronization settings. */
+  s3?: S3SyncConfig;
+}
+
 /** Configuration for creating a new sandbox. */
 export interface SandboxConfig {
   /** Docker image to use for the sandbox. */
@@ -14,6 +69,8 @@ export interface SandboxConfig {
   memory?: number;
   /** Port mappings to expose from the sandbox. */
   ports?: PortMapping[];
+  /** Storage configuration (volumes, tmpfs, S3). */
+  storage?: StorageConfig;
 }
 
 /** Options for executing a command inside a sandbox. */
@@ -135,6 +192,56 @@ export interface ClientConfig {
   url: string;
   /** API key for authentication. */
   apiKey?: string;
+}
+
+/** Request body for S3 import operation. */
+export interface S3ImportRequest {
+  /** S3 bucket name. */
+  bucket: string;
+  /** S3 object key. */
+  key: string;
+  /** Destination path inside the sandbox. */
+  dest_path: string;
+  /** S3-compatible endpoint URL (optional, falls back to server config). */
+  endpoint?: string;
+  /** Access key ID (optional, falls back to server config). */
+  access_key?: string;
+  /** Secret access key (optional, falls back to server config). */
+  secret_key?: string;
+  /** AWS region (optional). */
+  region?: string;
+}
+
+/** Response from an S3 import operation. */
+export interface S3ImportResponse {
+  success: boolean;
+  bytes_downloaded: number;
+  path: string;
+}
+
+/** Request body for S3 export operation. */
+export interface S3ExportRequest {
+  /** Source path inside the sandbox. */
+  source_path: string;
+  /** S3 bucket name. */
+  bucket: string;
+  /** S3 object key. */
+  key: string;
+  /** S3-compatible endpoint URL (optional, falls back to server config). */
+  endpoint?: string;
+  /** Access key ID (optional, falls back to server config). */
+  access_key?: string;
+  /** Secret access key (optional, falls back to server config). */
+  secret_key?: string;
+  /** AWS region (optional). */
+  region?: string;
+}
+
+/** Response from an S3 export operation. */
+export interface S3ExportResponse {
+  success: boolean;
+  bytes_uploaded: number;
+  s3_key: string;
 }
 
 /** Error response from the API. */

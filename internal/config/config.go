@@ -13,12 +13,13 @@ import (
 
 // Config holds all configuration for the den server.
 type Config struct {
-	Server   ServerConfig   `koanf:"server"`
-	Runtime  RuntimeConfig  `koanf:"runtime"`
-	Sandbox  SandboxConfig  `koanf:"sandbox"`
-	Store    StoreConfig    `koanf:"store"`
-	Auth     AuthConfig     `koanf:"auth"`
-	Log      LogConfig      `koanf:"log"`
+	Server  ServerConfig  `koanf:"server"`
+	Runtime RuntimeConfig `koanf:"runtime"`
+	Sandbox SandboxConfig `koanf:"sandbox"`
+	Store   StoreConfig   `koanf:"store"`
+	Auth    AuthConfig    `koanf:"auth"`
+	Log     LogConfig     `koanf:"log"`
+	S3      S3Config      `koanf:"s3"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -42,15 +43,45 @@ type RuntimeConfig struct {
 	NetworkID  string `koanf:"network_id"`
 }
 
+// TmpfsDefault defines a default tmpfs mount.
+type TmpfsDefault struct {
+	Path string `koanf:"path"`
+	Size string `koanf:"size"`
+}
+
 // SandboxConfig holds default sandbox settings.
 type SandboxConfig struct {
-	DefaultImage   string        `koanf:"default_image"`
-	DefaultTimeout time.Duration `koanf:"default_timeout"`
-	MaxSandboxes   int           `koanf:"max_sandboxes"`
-	DefaultCPU     int64         `koanf:"default_cpu"`     // NanoCPUs
-	DefaultMemory  int64         `koanf:"default_memory"`  // bytes
-	DefaultPidLimit int64        `koanf:"default_pid_limit"`
-	WarmPoolSize   int           `koanf:"warm_pool_size"`
+	DefaultImage       string        `koanf:"default_image"`
+	DefaultTimeout     time.Duration `koanf:"default_timeout"`
+	MaxSandboxes       int           `koanf:"max_sandboxes"`
+	DefaultCPU         int64         `koanf:"default_cpu"`     // NanoCPUs
+	DefaultMemory      int64         `koanf:"default_memory"`  // bytes
+	DefaultPidLimit    int64         `koanf:"default_pid_limit"`
+	WarmPoolSize       int           `koanf:"warm_pool_size"`
+	AllowVolumes       bool          `koanf:"allow_volumes"`
+	AllowSharedVolumes bool          `koanf:"allow_shared_volumes"`
+	AllowS3            bool          `koanf:"allow_s3"`
+	AllowS3FUSE        bool          `koanf:"allow_s3_fuse"`
+	AllowHostBinds     bool          `koanf:"allow_host_binds"`
+	MaxVolumesPerSandbox int         `koanf:"max_volumes_per_sandbox"`
+	DefaultTmpfs       []TmpfsDefault `koanf:"default_tmpfs"`
+}
+
+// S3Config holds server-wide S3 defaults.
+type S3Config struct {
+	Endpoint  string `koanf:"endpoint"`
+	Region    string `koanf:"region"`
+	AccessKey string `koanf:"access_key"`
+	SecretKey string `koanf:"secret_key"`
+}
+
+// String returns a safe representation of S3Config that masks the secret key.
+func (c S3Config) String() string {
+	masked := "***"
+	if c.SecretKey == "" {
+		masked = "(empty)"
+	}
+	return fmt.Sprintf("S3Config{Endpoint:%s Region:%s AccessKey:%s SecretKey:%s}", c.Endpoint, c.Region, c.AccessKey, masked)
 }
 
 // StoreConfig holds state persistence settings.
@@ -85,13 +116,28 @@ func DefaultConfig() *Config {
 			NetworkID: "den-net",
 		},
 		Sandbox: SandboxConfig{
-			DefaultImage:    "den/default:latest",
-			DefaultTimeout:  30 * time.Minute,
-			MaxSandboxes:    50,
-			DefaultCPU:      1_000_000_000, // 1 core
-			DefaultMemory:   512 * 1024 * 1024, // 512MB
-			DefaultPidLimit: 256,
-			WarmPoolSize:    0,
+			DefaultImage:         "den/default:latest",
+			DefaultTimeout:       30 * time.Minute,
+			MaxSandboxes:         50,
+			DefaultCPU:           1_000_000_000, // 1 core
+			DefaultMemory:        512 * 1024 * 1024, // 512MB
+			DefaultPidLimit:      256,
+			WarmPoolSize:         0,
+			AllowVolumes:         true,
+			AllowSharedVolumes:   true,
+			AllowS3:              true,
+			AllowS3FUSE:          false,
+			AllowHostBinds:       false,
+			MaxVolumesPerSandbox: 5,
+			DefaultTmpfs: []TmpfsDefault{
+				{Path: "/tmp", Size: "256m"},
+				{Path: "/home/sandbox", Size: "512m"},
+				{Path: "/run", Size: "64m"},
+				{Path: "/var/tmp", Size: "128m"},
+			},
+		},
+		S3: S3Config{
+			Region: "us-east-1",
 		},
 		Store: StoreConfig{
 			Path: "den.db",
@@ -119,6 +165,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Sandbox.DefaultImage == "" {
 		return fmt.Errorf("default_image is required")
+	}
+	if c.Sandbox.MaxVolumesPerSandbox < 0 {
+		return fmt.Errorf("max_volumes_per_sandbox must be non-negative")
+	}
+	if c.Sandbox.WarmPoolSize < 0 {
+		return fmt.Errorf("warm_pool_size must be non-negative")
 	}
 	return nil
 }

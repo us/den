@@ -24,13 +24,14 @@ func NewSandboxHandler(eng *engine.Engine, logger *slog.Logger) *SandboxHandler 
 }
 
 type createSandboxRequest struct {
-	Image    string            `json:"image"`
-	Env      map[string]string `json:"env,omitempty"`
-	WorkDir  string            `json:"workdir,omitempty"`
-	Timeout  int               `json:"timeout,omitempty"` // seconds
-	CPU      int64             `json:"cpu,omitempty"`
-	Memory   int64             `json:"memory,omitempty"`
+	Image    string                `json:"image"`
+	Env      map[string]string     `json:"env,omitempty"`
+	WorkDir  string                `json:"workdir,omitempty"`
+	Timeout  int                   `json:"timeout,omitempty"` // seconds
+	CPU      int64                 `json:"cpu,omitempty"`
+	Memory   int64                 `json:"memory,omitempty"`
 	Ports    []runtime.PortMapping `json:"ports,omitempty"`
+	Storage  *runtime.StorageConfig `json:"storage,omitempty"`
 }
 
 type sandboxResponse struct {
@@ -68,6 +69,7 @@ func (h *SandboxHandler) Create(w http.ResponseWriter, r *http.Request) {
 		CPU:     req.CPU,
 		Memory:  req.Memory,
 		Ports:   req.Ports,
+		Storage: req.Storage,
 	}
 	if req.Timeout > 0 {
 		cfg.Timeout = time.Duration(req.Timeout) * time.Second

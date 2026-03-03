@@ -23,6 +23,49 @@ type PortMapping struct {
 	Protocol    string `json:"protocol,omitempty"` // "tcp" (default) or "udp"
 }
 
+// VolumeMount defines a named volume to mount into a sandbox.
+type VolumeMount struct {
+	Name      string `json:"name"`
+	MountPath string `json:"mount_path"`
+	ReadOnly  bool   `json:"read_only,omitempty"`
+}
+
+// TmpfsMount defines a tmpfs filesystem to mount inside a sandbox.
+type TmpfsMount struct {
+	Path    string `json:"path"`
+	Size    string `json:"size"`             // "256m", "1g"
+	Options string `json:"options,omitempty"` // "rw,noexec,nosuid"
+}
+
+// S3SyncMode determines how S3 synchronization is performed.
+type S3SyncMode string
+
+const (
+	S3SyncModeHooks    S3SyncMode = "hooks"
+	S3SyncModeFUSE     S3SyncMode = "fuse"
+	S3SyncModeOnDemand S3SyncMode = "on_demand"
+)
+
+// S3SyncConfig holds S3 synchronization settings for a sandbox.
+type S3SyncConfig struct {
+	Endpoint  string     `json:"endpoint,omitempty"`
+	Bucket    string     `json:"bucket"`
+	Prefix    string     `json:"prefix,omitempty"`
+	Region    string     `json:"region,omitempty"`
+	AccessKey string     `json:"access_key,omitempty"`
+	SecretKey string     `json:"secret_key,omitempty"`
+	Mode      S3SyncMode `json:"mode"`
+	MountPath string     `json:"mount_path,omitempty"` // FUSE: "/mnt/s3"
+	SyncPath  string     `json:"sync_path,omitempty"`  // Hooks: local path to sync
+}
+
+// StorageConfig holds storage settings for a sandbox.
+type StorageConfig struct {
+	Volumes []VolumeMount `json:"volumes,omitempty"`
+	Tmpfs   []TmpfsMount  `json:"tmpfs,omitempty"`
+	S3      *S3SyncConfig `json:"s3,omitempty"`
+}
+
 // SandboxConfig holds configuration for creating a new sandbox.
 type SandboxConfig struct {
 	Image      string            `json:"image"`
@@ -38,6 +81,8 @@ type SandboxConfig struct {
 	Labels     map[string]string `json:"labels,omitempty"`
 	NetworkID  string            `json:"-"`
 	ReadOnlyFS bool              `json:"readonly_fs,omitempty"`
+	Storage    *StorageConfig    `json:"storage,omitempty"`
+	TmpfsMap   map[string]string `json:"-"` // Computed by engine from storage config + defaults
 }
 
 // SandboxInfo holds runtime information about a sandbox.

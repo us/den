@@ -13,10 +13,18 @@ from den.types import (
     ExecResult,
     FileInfo,
     PortMapping,
+    S3ExportRequest,
+    S3ExportResponse,
+    S3ImportRequest,
+    S3ImportResponse,
+    S3SyncConfig,
     SandboxConfig,
     SandboxInfo,
     SandboxStats,
     SnapshotInfo,
+    StorageConfig,
+    TmpfsMount,
+    VolumeMount,
 )
 
 __all__ = [
@@ -28,13 +36,21 @@ __all__ = [
     "NotFoundError",
     "PortMapping",
     "RateLimitError",
+    "S3ExportRequest",
+    "S3ExportResponse",
+    "S3ImportRequest",
+    "S3ImportResponse",
+    "S3SyncConfig",
     "Sandbox",
     "SandboxConfig",
     "SandboxInfo",
     "SandboxManager",
     "SandboxStats",
     "SnapshotInfo",
+    "StorageConfig",
+    "TmpfsMount",
     "ValidationError",
+    "VolumeMount",
 ]
 
 __version__ = "0.1.0"
