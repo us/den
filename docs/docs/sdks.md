@@ -2,10 +2,16 @@
 
 den provides official SDKs for Go, TypeScript, and Python.
 
+| SDK | Package | Install |
+|-----|---------|---------|
+| Go | [`github.com/us/den`](https://pkg.go.dev/github.com/us/den) | `go get github.com/us/den@latest` |
+| TypeScript | [`@den/sdk`](https://www.npmjs.com/package/@den/sdk) | `bun add @den/sdk` |
+| Python | [`den`](https://pypi.org/project/den/) | `uv add den` / `pip install den` |
+
 ## Go SDK
 
 ```go
-import client "github.com/getden/den/pkg/client"
+import client "github.com/us/den/pkg/client"
 
 c := client.New("http://localhost:8080",
     client.WithAPIKey("your-api-key"),

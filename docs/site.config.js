@@ -6,7 +6,7 @@ export default {
     { label: "Docs", href: "#introduction" },
     { label: "API", href: "#rest-api" },
     { label: "MCP", href: "#mcp" },
-    { label: "GitHub", href: "https://github.com/getden/den", external: true },
+    { label: "GitHub", href: "https://github.com/us/den", external: true },
   ],
 
   sidebar: [

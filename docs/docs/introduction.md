@@ -36,7 +36,7 @@ package main
 import (
     "context"
     "fmt"
-    client "github.com/getden/den/pkg/client"
+    client "github.com/us/den/pkg/client"
 )
 
 func main() {

@@ -50,6 +50,21 @@ AI agents need to run code, but running untrusted code on your machine is danger
 - **Storage** — Persistent volumes, shared volumes, configurable tmpfs, and S3 integration
 - **Go + TypeScript + Python SDKs** — First-class client libraries
 
+## Installation
+
+```bash
+# Go
+go get github.com/us/den@latest
+
+# TypeScript
+bun add @den/sdk
+# or: npm install @den/sdk
+
+# Python
+pip install den
+# or: uv add den
+```
+
 ## Quick Start
 
 ### Prerequisites
@@ -103,7 +118,7 @@ import (
     "context"
     "fmt"
 
-    client "github.com/den/den/pkg/client"
+    client "github.com/us/den/pkg/client"
 )
 
 func main() {
@@ -299,7 +314,7 @@ See [Configuration Guide](docs/configuration.md) for all options.
 
 ```bash
 # Clone and build
-git clone https://github.com/den/den
+git clone https://github.com/us/den
 cd den
 go build ./cmd/den
 

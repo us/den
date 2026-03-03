@@ -8,7 +8,7 @@
 ## Build from Source
 
 ```bash
-git clone https://github.com/getden/den.git
+git clone https://github.com/us/den.git
 cd den
 go build -o den ./cmd/den
 ./den serve
@@ -24,7 +24,7 @@ make run      # ./bin/den serve
 ## Docker
 
 ```bash
-docker build -t den/den:latest .
+docker build -t us/den:latest .
 ```
 
 Build the default sandbox image:
