@@ -16,7 +16,7 @@ import (
 const (
 	protocolVersion = "2024-11-05"
 	serverName      = "den"
-	serverVersion   = "0.1.0"
+	serverVersion   = "0.2.0"
 )
 
 // JSONRPCRequest represents an incoming JSON-RPC 2.0 request.

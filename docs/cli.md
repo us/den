@@ -254,7 +254,7 @@ den version
 
 **Output:**
 ```
-den v0.1.0 (abc1234) built 2026-03-03
+den v0.2.0 (abc1234) built 2026-03-03
 ```
 
 ---

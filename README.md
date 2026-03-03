@@ -26,7 +26,7 @@ den serve
 
 ## What's New
 
-### Storage Layer (v0.2)
+### Storage Layer (v0.2.0)
 
 - **Configurable tmpfs** — Per-sandbox tmpfs size overrides (e.g. `/tmp` with 128MB instead of default 256MB)
 - **Persistent volumes** — Docker named volumes that survive sandbox destruction

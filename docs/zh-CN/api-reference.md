@@ -40,7 +40,7 @@ GET /api/v1/version
 响应 `200 OK`：
 ```json
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "commit": "abc1234",
   "build_date": "2026-03-03T00:00:00Z"
 }
