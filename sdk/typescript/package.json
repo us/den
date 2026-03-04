@@ -1,5 +1,5 @@
 {
-  "name": "@den/sdk",
+  "name": "@us4/den",
   "version": "0.0.3",
   "description": "TypeScript SDK for the Den sandbox API",
   "main": "dist/index.js",
