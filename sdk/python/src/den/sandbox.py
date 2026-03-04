@@ -366,6 +366,39 @@ class Sandbox:
         resp = await self._async_client.delete(self._base_url)
         _raise_for_status(resp)
 
+    # -- Context manager --
+
+    def __enter__(self) -> Sandbox:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
+        try:
+            self.destroy()
+        except Exception:
+            if exc_type is None:
+                raise
+            # Don't mask the original exception from the with block
+
+    async def __aenter__(self) -> Sandbox:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
+        try:
+            await self.adestroy()
+        except Exception:
+            if exc_type is None:
+                raise
+
     # -- Stats --
 
     def stats(self) -> SandboxStats:

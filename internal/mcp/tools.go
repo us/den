@@ -31,6 +31,8 @@ func registerTools(s *Server) []ToolDef {
 		toolReadFile(s),
 		toolWriteFile(s),
 		toolListFiles(s),
+		toolDeleteFile(s),
+		toolMkdir(s),
 		toolDestroySandbox(s),
 		toolListSandboxes(s),
 		toolSnapshotCreate(s),
@@ -49,8 +51,12 @@ type createSandboxArgs struct {
 
 func toolCreateSandbox(s *Server) ToolDef {
 	return ToolDef{
-		Name:        "create_sandbox",
-		Description: "Create and start a new sandbox container.",
+		Name: "create_sandbox",
+		Description: `Create a new isolated Docker sandbox container. Returns a sandbox_id needed for all other tools.
+Use image='python:3.12' for Python, 'node:20' for Node.js, 'ubuntu:22.04' for general use.
+Sandbox auto-destroys after timeout (default from server config, typically 30min).
+Always call destroy_sandbox when done to free resources.
+Typical workflow: create_sandbox → exec/write_file → destroy_sandbox.`,
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -114,8 +120,12 @@ type execArgs struct {
 
 func toolExec(s *Server) ToolDef {
 	return ToolDef{
-		Name:        "exec",
-		Description: "Execute a command inside a sandbox.",
+		Name: "exec",
+		Description: `Execute a command inside a running sandbox. Returns stdout, stderr, and exit_code.
+A non-zero exit_code means the command failed but is NOT a tool error — check stderr for details.
+The cmd array is NOT a shell — no pipes, redirects, or glob expansion.
+For shell features use: ["sh", "-c", "your command here"].
+Correct: ["python3", "-c", "print(2+2)"]  Wrong: ["python3 -c 'print(2+2)'"]`,
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -172,6 +182,7 @@ func toolExec(s *Server) ToolDef {
 				"exit_code": result.ExitCode,
 				"stdout":    result.Stdout,
 				"stderr":    result.Stderr,
+				"success":   result.ExitCode == 0,
 			})
 		},
 	}
@@ -187,7 +198,7 @@ type readFileArgs struct {
 func toolReadFile(s *Server) ToolDef {
 	return ToolDef{
 		Name:        "read_file",
-		Description: "Read a file from a sandbox.",
+		Description: "Read a file from a sandbox. Returns text content, or base64-encoded content for binary files.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -236,7 +247,7 @@ type writeFileArgs struct {
 func toolWriteFile(s *Server) ToolDef {
 	return ToolDef{
 		Name:        "write_file",
-		Description: "Write a file to a sandbox.",
+		Description: "Write a file to a sandbox. Parent directories are created automatically.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -333,6 +344,96 @@ func toolListFiles(s *Server) ToolDef {
 	}
 }
 
+// --- delete_file ---
+
+type deleteFileArgs struct {
+	SandboxID string `json:"sandbox_id"`
+	Path      string `json:"path"`
+}
+
+func toolDeleteFile(s *Server) ToolDef {
+	return ToolDef{
+		Name:        "delete_file",
+		Description: "Delete a file or directory from a sandbox.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"sandbox_id": map[string]any{
+					"type":        "string",
+					"description": "ID of the sandbox.",
+				},
+				"path": map[string]any{
+					"type":        "string",
+					"description": "Absolute path of the file or directory to delete.",
+				},
+			},
+			"required": []string{"sandbox_id", "path"},
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (string, error) {
+			var args deleteFileArgs
+			if err := json.Unmarshal(raw, &args); err != nil {
+				return "", fmt.Errorf("invalid arguments: %w", err)
+			}
+			if err := pathutil.ValidatePath(args.Path); err != nil {
+				return "", fmt.Errorf("invalid path: %w", err)
+			}
+
+			if err := s.engine.RemoveFile(ctx, args.SandboxID, args.Path); err != nil {
+				return "", err
+			}
+
+			return marshalResult(map[string]any{
+				"success": true,
+			})
+		},
+	}
+}
+
+// --- mkdir ---
+
+type mkdirArgs struct {
+	SandboxID string `json:"sandbox_id"`
+	Path      string `json:"path"`
+}
+
+func toolMkdir(s *Server) ToolDef {
+	return ToolDef{
+		Name:        "mkdir",
+		Description: "Create a directory inside a sandbox. Parent directories are created automatically.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"sandbox_id": map[string]any{
+					"type":        "string",
+					"description": "ID of the sandbox.",
+				},
+				"path": map[string]any{
+					"type":        "string",
+					"description": "Absolute path of the directory to create.",
+				},
+			},
+			"required": []string{"sandbox_id", "path"},
+		},
+		Handler: func(ctx context.Context, raw json.RawMessage) (string, error) {
+			var args mkdirArgs
+			if err := json.Unmarshal(raw, &args); err != nil {
+				return "", fmt.Errorf("invalid arguments: %w", err)
+			}
+			if err := pathutil.ValidatePath(args.Path); err != nil {
+				return "", fmt.Errorf("invalid path: %w", err)
+			}
+
+			if err := s.engine.MkDir(ctx, args.SandboxID, args.Path); err != nil {
+				return "", err
+			}
+
+			return marshalResult(map[string]any{
+				"success": true,
+			})
+		},
+	}
+}
+
 // --- destroy_sandbox ---
 
 type destroySandboxArgs struct {
@@ -342,7 +443,7 @@ type destroySandboxArgs struct {
 func toolDestroySandbox(s *Server) ToolDef {
 	return ToolDef{
 		Name:        "destroy_sandbox",
-		Description: "Stop and remove a sandbox.",
+		Description: "Permanently stop and remove a sandbox. Always call this when done to free resources.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -375,9 +476,10 @@ func toolDestroySandbox(s *Server) ToolDef {
 func toolListSandboxes(s *Server) ToolDef {
 	return ToolDef{
 		Name:        "list_sandboxes",
-		Description: "List all active sandboxes.",
+		Description: "List all active sandboxes with their IDs, images, and status.",
 		InputSchema: map[string]any{
-			"type": "object",
+			"type":       "object",
+			"properties": map[string]any{},
 		},
 		Handler: func(ctx context.Context, _ json.RawMessage) (string, error) {
 			sandboxes := s.engine.ListSandboxes()
@@ -413,7 +515,7 @@ type snapshotCreateArgs struct {
 func toolSnapshotCreate(s *Server) ToolDef {
 	return ToolDef{
 		Name:        "snapshot_create",
-		Description: "Create a snapshot of a sandbox's current state.",
+		Description: "Create a snapshot of a sandbox's current state. Note: files in tmpfs (/tmp, /home/sandbox) are NOT preserved.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -423,15 +525,18 @@ func toolSnapshotCreate(s *Server) ToolDef {
 				},
 				"name": map[string]any{
 					"type":        "string",
-					"description": "Human-readable name for the snapshot.",
+					"description": "Human-readable name for the snapshot. Auto-generated if omitted.",
 				},
 			},
-			"required": []string{"sandbox_id", "name"},
+			"required": []string{"sandbox_id"},
 		},
 		Handler: func(ctx context.Context, raw json.RawMessage) (string, error) {
 			var args snapshotCreateArgs
 			if err := json.Unmarshal(raw, &args); err != nil {
 				return "", fmt.Errorf("invalid arguments: %w", err)
+			}
+			if args.Name == "" {
+				args.Name = fmt.Sprintf("snapshot-%d", time.Now().UnixNano())
 			}
 
 			snap, err := s.engine.Snapshot(ctx, args.SandboxID, args.Name)

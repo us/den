@@ -53,7 +53,7 @@ Add to `.cursor/mcp.json`:
 
 ## Available Tools
 
-The MCP server exposes 9 tools:
+The MCP server exposes 11 tools:
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
@@ -62,6 +62,8 @@ The MCP server exposes 9 tools:
 | `read_file` | `sandbox_id`, `path` | Read file (auto base64 for binary) |
 | `write_file` | `sandbox_id`, `path`, `content` | Write a file |
 | `list_files` | `sandbox_id`, `path` | List directory contents |
+| `delete_file` | `sandbox_id`, `path` | Delete a file or directory |
+| `mkdir` | `sandbox_id`, `path` | Create a directory |
 | `destroy_sandbox` | `sandbox_id` | Destroy a sandbox |
 | `list_sandboxes` | — | List all sandboxes |
 | `snapshot_create` | `sandbox_id`, `name?` | Create a snapshot |

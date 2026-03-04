@@ -17,23 +17,26 @@ import (
 	"github.com/us/den/internal/config"
 	"github.com/us/den/internal/dashboard"
 	"github.com/us/den/internal/engine"
+	"github.com/us/den/internal/runtime"
 )
 
 // Server is the HTTP API server.
 type Server struct {
 	httpServer  *http.Server
 	engine      *engine.Engine
+	runtime     runtime.Runtime
 	config      *config.Config
 	logger      *slog.Logger
 	rateLimiter *middleware.RateLimiter
 }
 
 // NewServer creates a new API server.
-func NewServer(eng *engine.Engine, cfg *config.Config, logger *slog.Logger) *Server {
+func NewServer(eng *engine.Engine, rt runtime.Runtime, cfg *config.Config, logger *slog.Logger) *Server {
 	rl := middleware.NewRateLimiter(cfg.Server.RateLimitRPS, cfg.Server.RateLimitBurst)
 
 	s := &Server{
 		engine:      eng,
+		runtime:     rt,
 		config:      cfg,
 		logger:      logger,
 		rateLimiter: rl,
@@ -61,7 +64,7 @@ func NewServer(eng *engine.Engine, cfg *config.Config, logger *slog.Logger) *Ser
 	}))
 
 	// Register routes
-	RegisterRoutes(r, eng, cfg, logger)
+	RegisterRoutes(r, eng, rt, cfg, logger)
 
 	// Mount dashboard at root
 	r.Handle("/*", dashboard.Handler())
@@ -93,7 +96,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 // RegisterRoutes sets up all API routes.
-func RegisterRoutes(r chi.Router, eng *engine.Engine, cfg *config.Config, logger *slog.Logger) {
+func RegisterRoutes(r chi.Router, eng *engine.Engine, rt runtime.Runtime, cfg *config.Config, logger *slog.Logger) {
 	sh := handlers.NewSandboxHandler(eng, logger)
 	eh := handlers.NewExecHandler(eng, logger)
 	fh := handlers.NewFileHandler(eng, logger)
@@ -103,15 +106,15 @@ func RegisterRoutes(r chi.Router, eng *engine.Engine, cfg *config.Config, logger
 	s3H := handlers.NewS3Handler(eng, cfg.S3, logger)
 	wsH := ws.NewExecHandler(eng, logger, cfg.Server.AllowedOrigins)
 
+	// Health & version — outside auth so load balancers and K8s probes can access them
+	r.Get("/api/v1/health", handlers.HealthHandler(rt))
+	r.Get("/api/v1/version", handlers.Version)
+
 	r.Route("/api/v1", func(r chi.Router) {
 		// Auth middleware (conditional)
 		if cfg.Auth.Enabled {
 			r.Use(middleware.Auth(cfg.Auth.APIKeys))
 		}
-
-		// Health & version
-		r.Get("/health", handlers.Health)
-		r.Get("/version", handlers.Version)
 
 		// Sandbox CRUD
 		r.Post("/sandboxes", sh.Create)

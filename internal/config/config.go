@@ -172,6 +172,17 @@ func (c *Config) Validate() error {
 	if c.Sandbox.WarmPoolSize < 0 {
 		return fmt.Errorf("warm_pool_size must be non-negative")
 	}
+	if c.Auth.Enabled && len(c.Auth.APIKeys) == 0 {
+		return fmt.Errorf("auth is enabled but no api_keys configured")
+	}
+	if c.Server.TLS.Enabled {
+		if c.Server.TLS.CertFile == "" || c.Server.TLS.KeyFile == "" {
+			return fmt.Errorf("TLS is enabled but cert_file or key_file is missing")
+		}
+	}
+	if c.Sandbox.DefaultMemory > 0 && c.Sandbox.DefaultMemory < 4*1024*1024 {
+		return fmt.Errorf("default_memory must be at least 4MB")
+	}
 	return nil
 }
 

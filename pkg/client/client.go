@@ -49,14 +49,58 @@ func New(baseURL string, opts ...Option) *Client {
 	return c
 }
 
+// PortMapping defines a port forwarding between host and sandbox.
+type PortMapping struct {
+	SandboxPort int    `json:"sandbox_port"`
+	HostPort    int    `json:"host_port"`
+	Protocol    string `json:"protocol,omitempty"`
+}
+
+// VolumeMount defines a named volume to mount into a sandbox.
+type VolumeMount struct {
+	Name      string `json:"name"`
+	MountPath string `json:"mount_path"`
+	ReadOnly  bool   `json:"read_only,omitempty"`
+}
+
+// TmpfsMount defines a tmpfs filesystem to mount inside a sandbox.
+type TmpfsMount struct {
+	Path    string `json:"path"`
+	Size    string `json:"size"`
+	Options string `json:"options,omitempty"`
+}
+
+// S3SyncConfig holds S3 synchronization settings for a sandbox.
+type S3SyncConfig struct {
+	Endpoint  string `json:"endpoint,omitempty"`
+	Bucket    string `json:"bucket"`
+	Prefix    string `json:"prefix,omitempty"`
+	Region    string `json:"region,omitempty"`
+	AccessKey string `json:"access_key,omitempty"`
+	SecretKey string `json:"secret_key,omitempty"`
+	Mode      string `json:"mode"`
+	MountPath string `json:"mount_path,omitempty"`
+	SyncPath  string `json:"sync_path,omitempty"`
+}
+
+// StorageConfig holds storage settings for a sandbox.
+type StorageConfig struct {
+	Volumes []VolumeMount `json:"volumes,omitempty"`
+	Tmpfs   []TmpfsMount  `json:"tmpfs,omitempty"`
+	S3      *S3SyncConfig `json:"s3,omitempty"`
+}
+
 // SandboxConfig holds sandbox creation options.
 type SandboxConfig struct {
-	Image   string            `json:"image,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	WorkDir string            `json:"workdir,omitempty"`
-	Timeout int               `json:"timeout,omitempty"`
-	CPU     int64             `json:"cpu,omitempty"`
-	Memory  int64             `json:"memory,omitempty"`
+	Image    string            `json:"image,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	WorkDir  string            `json:"workdir,omitempty"`
+	Timeout  int               `json:"timeout,omitempty"` // seconds
+	CPU      int64             `json:"cpu,omitempty"`     // NanoCPUs (1e9 = 1 core)
+	Memory   int64             `json:"memory,omitempty"`  // bytes
+	PidLimit int64             `json:"pid_limit,omitempty"`
+	Ports    []PortMapping     `json:"ports,omitempty"`
+	Storage  *StorageConfig    `json:"storage,omitempty"`
 }
 
 // Sandbox represents a sandbox instance.

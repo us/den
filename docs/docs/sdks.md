@@ -17,10 +17,10 @@ c := client.New("http://localhost:8080",
     client.WithAPIKey("your-api-key"),
 )
 
-// Create sandbox
+// Create sandbox (timeout in seconds)
 sb, _ := c.CreateSandbox(ctx, client.SandboxConfig{
     Image:   "ubuntu:22.04",
-    Timeout: "30m",
+    Timeout: 1800, // 30 minutes
 })
 
 // Execute command
@@ -67,9 +67,10 @@ const den = new Den({
   apiKey: 'your-api-key',
 });
 
+// Create sandbox (timeout in seconds)
 const sandbox = await den.sandbox.create({
   image: 'ubuntu:22.04',
-  timeout: '30m',
+  timeout: 1800, // 30 minutes
 });
 
 const result = await sandbox.exec(['python3', '-c', 'print("hello")']);
@@ -78,29 +79,44 @@ console.log(result.stdout);
 await sandbox.writeFile('/tmp/test.py', 'print("world")');
 const content = await sandbox.readFile('/tmp/test.py');
 
+// Snapshots
 const snapshot = await sandbox.snapshot('checkpoint');
-const restored = await den.snapshot.restore(snapshot.id);
+const snapshots = await sandbox.listSnapshots();
 
 await sandbox.destroy();
 ```
 
-## Python SDK (Async)
+## Python SDK
+
+```python
+from den import Den
+
+# Sync usage
+client = Den("http://localhost:8080", api_key="your-api-key")
+
+sandbox = client.sandbox.create(image="ubuntu:22.04")
+result = sandbox.exec(["echo", "hello"])
+print(result.stdout)
+
+sandbox.destroy()
+client.close()
+```
+
+### Async Usage
 
 ```python
 import asyncio
-from den import AsyncDen
+from den import Den
 
 async def main():
-    den = AsyncDen(
-        url="http://localhost:8080",
-        api_key="your-api-key",
-    )
+    client = Den("http://localhost:8080", api_key="your-api-key")
 
-    sandbox = await den.sandbox.create(image="ubuntu:22.04")
-    result = await sandbox.exec(["echo", "hello"])
+    sandbox = await client.sandbox.acreate(image="ubuntu:22.04")
+    result = await sandbox.aexec(["echo", "hello"])
     print(result.stdout)
 
-    await sandbox.destroy()
+    await sandbox.adestroy()
+    await client.aclose()
 
 asyncio.run(main())
 ```

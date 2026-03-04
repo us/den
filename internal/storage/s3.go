@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -85,13 +87,88 @@ func ResolveS3Credentials(sandbox *runtime.S3SyncConfig, server serverconfig.S3C
 	return creds, nil
 }
 
+// ssrfBlockingTransport returns an http.RoundTripper that blocks connections
+// to private/internal IP addresses at the dial level, preventing DNS rebinding attacks.
+func ssrfBlockingTransport() http.RoundTripper {
+	dialer := &net.Dialer{}
+	return &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid address: %w", err)
+			}
+			ips, err := net.DefaultResolver.LookupHost(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("cannot resolve host: %w", err)
+			}
+			for _, rawIP := range ips {
+				ip := net.ParseIP(rawIP)
+				if ip == nil || isBlockedIP(ip) {
+					return nil, fmt.Errorf("connection to %s blocked (resolves to internal address)", host)
+				}
+			}
+			// Connect to the first resolved IP to prevent re-resolution
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0], port))
+		},
+	}
+}
+
+// isBlockedIP returns true if the IP is in a private, loopback, link-local,
+// or otherwise internal range that should not be accessible via SSRF.
+func isBlockedIP(ip net.IP) bool {
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() ||
+		IsCloudMetadataIP(ip)
+}
+
+// Cloud metadata IP addresses (pre-parsed for efficiency).
+var (
+	metadataIP     = net.ParseIP("169.254.169.254") // AWS, GCP, Azure
+	metadataAltIP  = net.ParseIP("169.254.169.253") // Azure alternative
+	alibabaCloudIP = net.ParseIP("100.100.100.200") // Alibaba Cloud
+)
+
+// Cloud metadata IPv6 CIDR ranges.
+var cloudMetadataV6Ranges []*net.IPNet
+
+func init() {
+	_, cidr, _ := net.ParseCIDR("fd00:ec2::/32") // AWS IPv6 metadata
+	cloudMetadataV6Ranges = append(cloudMetadataV6Ranges, cidr)
+}
+
+// IsCloudMetadataIP checks for cloud provider metadata IP ranges.
+func IsCloudMetadataIP(ip net.IP) bool {
+	if ip.Equal(metadataIP) || ip.Equal(metadataAltIP) || ip.Equal(alibabaCloudIP) {
+		return true
+	}
+	for _, cidr := range cloudMetadataV6Ranges {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // NewS3Client creates a new S3Client from resolved credentials.
+// When a custom endpoint is provided, the client uses an SSRF-blocking transport
+// that validates resolved IPs at dial time to prevent DNS rebinding attacks.
 func NewS3Client(ctx context.Context, creds *S3Credentials, logger *slog.Logger) (*S3Client, error) {
 	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(creds.Region),
 		awsconfig.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(creds.AccessKey, creds.SecretKey, ""),
 		),
+	}
+
+	// When using a custom endpoint, inject SSRF-blocking transport
+	// to prevent DNS rebinding attacks (TOCTOU between validation and connection).
+	if creds.Endpoint != "" {
+		opts = append(opts, awsconfig.WithHTTPClient(
+			&http.Client{Transport: ssrfBlockingTransport()},
+		))
 	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)

@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
+
+	"github.com/us/den/internal/runtime"
 )
 
 var (
@@ -35,9 +39,21 @@ func readJSON(r *http.Request, v any) error {
 	return json.NewDecoder(r.Body).Decode(v)
 }
 
-// Health returns server health status.
-func Health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+// HealthHandler creates a health check handler that verifies Docker connectivity.
+func HealthHandler(rt runtime.Runtime) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+
+		if err := rt.Ping(ctx); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"status": "unhealthy",
+				"reason": "runtime unavailable",
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
 }
 
 // Version returns server version info.

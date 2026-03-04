@@ -160,6 +160,8 @@ func (r *DockerRuntime) Create(ctx context.Context, id string, cfg runtime.Sandb
 			NanoCPUs: cfg.CPU,
 			Memory:   cfg.Memory,
 		},
+		// Docker applies the default seccomp profile automatically when
+		// no seccomp option is specified (blocks ~44 dangerous syscalls).
 		SecurityOpt:    []string{"no-new-privileges"},
 		CapDrop:        []string{"ALL"},
 		CapAdd:         []string{"NET_BIND_SERVICE", "CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"},

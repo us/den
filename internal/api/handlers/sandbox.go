@@ -81,7 +81,8 @@ func (h *SandboxHandler) Create(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusTooManyRequests, "maximum sandbox limit reached")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("failed to create sandbox", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create sandbox")
 		return
 	}
 
@@ -107,7 +108,8 @@ func (h *SandboxHandler) Get(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "sandbox not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("failed to get sandbox", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get sandbox")
 		return
 	}
 	writeJSON(w, http.StatusOK, toSandboxResponse(sandbox))
@@ -121,7 +123,8 @@ func (h *SandboxHandler) Delete(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "sandbox not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("failed to destroy sandbox", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to destroy sandbox")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -135,7 +138,8 @@ func (h *SandboxHandler) Stop(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "sandbox not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("failed to stop sandbox", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to stop sandbox")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})

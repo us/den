@@ -85,9 +85,14 @@ func serveCmd() *cobra.Command {
 			case "error":
 				logLevel = slog.LevelError
 			}
-			logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-				Level: logLevel,
-			}))
+			opts := &slog.HandlerOptions{Level: logLevel}
+			var handler slog.Handler
+			if cfg.Log.Format == "json" {
+				handler = slog.NewJSONHandler(os.Stdout, opts)
+			} else {
+				handler = slog.NewTextHandler(os.Stdout, opts)
+			}
+			logger = slog.New(handler)
 			slog.SetDefault(logger)
 
 			// Setup store
@@ -118,11 +123,16 @@ func serveCmd() *cobra.Command {
 				logger.Warn("failed to create network", "error", err)
 			}
 
+			// Warn if auth is disabled
+			if !cfg.Auth.Enabled {
+				logger.Warn("authentication is DISABLED — API is publicly accessible, set auth.enabled=true in production")
+			}
+
 			// Setup engine
 			eng := engine.NewEngine(rt, st, cfg.Sandbox, cfg.S3, logger)
 
 			// Setup API server
-			srv := api.NewServer(eng, cfg, logger)
+			srv := api.NewServer(eng, rt, cfg, logger)
 
 			// Graceful shutdown
 			sigCh := make(chan os.Signal, 1)

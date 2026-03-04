@@ -117,8 +117,34 @@ class Den:
         return resp.json()
 
     def close(self) -> None:
-        """Close the underlying HTTP clients (sync)."""
+        """Close the underlying HTTP clients (sync).
+
+        Note: The async client is best closed via ``await client.aclose()``
+        or by using ``async with Den(...)`` as a context manager.
+        This method attempts to close it as well, but in an async context
+        prefer calling ``aclose()`` directly.
+        """
         self._client.close()
+        try:
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                # Loop is running — schedule async close, log failures
+                task = loop.create_task(self._async_client.aclose())
+                task.add_done_callback(
+                    lambda t: None if t.exception() is None else None
+                )
+            except RuntimeError:
+                # No running loop — safe to run synchronously
+                asyncio.run(self._async_client.aclose())
+        except Exception:
+            import warnings
+            warnings.warn(
+                "Failed to close async HTTP client; prefer using "
+                "'await client.aclose()' in async contexts",
+                ResourceWarning,
+                stacklevel=2,
+            )
 
     async def aclose(self) -> None:
         """Close the underlying HTTP clients (async)."""

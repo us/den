@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -38,7 +38,8 @@ func NewS3Handler(eng *engine.Engine, s3Cfg config.S3Config, logger *slog.Logger
 	return &S3Handler{engine: eng, s3Config: s3Cfg, logger: logger}
 }
 
-// validateEndpoint checks that a user-supplied S3 endpoint is a valid HTTP(S) URL.
+// validateEndpoint checks that a user-supplied S3 endpoint is a valid HTTP(S) URL
+// and blocks SSRF attempts targeting internal/private networks.
 func validateEndpoint(endpoint string) error {
 	if endpoint == "" {
 		return nil
@@ -53,12 +54,48 @@ func validateEndpoint(endpoint string) error {
 	if u.Host == "" {
 		return fmt.Errorf("endpoint must have a host")
 	}
-	// Block common internal/metadata endpoints
-	host := strings.Split(u.Host, ":")[0]
-	if host == "169.254.169.254" || host == "metadata.google.internal" {
-		return fmt.Errorf("endpoint points to a blocked address")
+
+	host := u.Hostname()
+
+	// Block well-known metadata hostnames
+	blockedHosts := []string{
+		"metadata.google.internal",
+		"metadata.internal",
 	}
+	for _, blocked := range blockedHosts {
+		if host == blocked {
+			return fmt.Errorf("endpoint points to a blocked address")
+		}
+	}
+
+	// Resolve hostname and check all IPs
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return fmt.Errorf("cannot resolve endpoint host: %w", err)
+	}
+
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			return fmt.Errorf("endpoint resolves to invalid IP: %s", addr)
+		}
+		if isBlockedIP(ip) {
+			return fmt.Errorf("endpoint resolves to a blocked address: %s", addr)
+		}
+	}
+
 	return nil
+}
+
+// isBlockedIP returns true if the IP is in a private, loopback, link-local,
+// or otherwise internal range that should not be accessible via SSRF.
+func isBlockedIP(ip net.IP) bool {
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() ||
+		storage.IsCloudMetadataIP(ip)
 }
 
 type s3ImportRequest struct {
@@ -126,15 +163,24 @@ func (h *S3Handler) Import(w http.ResponseWriter, r *http.Request) {
 
 	body, size, err := client.Download(r.Context(), req.Bucket, req.Key)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to download from S3")
 		h.logger.Error("s3 download failed", "error", err, "bucket", req.Bucket, "key", req.Key)
+		writeError(w, http.StatusInternalServerError, "failed to download from S3")
 		return
 	}
 	defer body.Close()
 
+	// Reject early if S3 reported size exceeds limit
+	if size > maxS3ImportSize {
+		writeError(w, http.StatusBadRequest, "S3 object exceeds maximum import size of 100MB")
+		return
+	}
+
 	// Read downloaded content with size limit
 	limited := io.LimitReader(body, maxS3ImportSize+1)
 	var buf bytes.Buffer
+	if size > 0 {
+		buf.Grow(int(size)) // pre-allocate when size is known
+	}
 	n, err := buf.ReadFrom(limited)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to read S3 object")

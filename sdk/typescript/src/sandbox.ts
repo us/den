@@ -89,7 +89,7 @@ class HttpClient {
   async requestRawBody(
     method: string,
     path: string,
-    body: string,
+    body: string | Uint8Array,
   ): Promise<void> {
     const url = `${this.baseUrl}${path}`;
     const response = await fetch(url, {
@@ -98,7 +98,7 @@ class HttpClient {
         ...this.headers,
         "Content-Type": "application/octet-stream",
       },
-      body,
+      body: typeof body === "string" ? body : Buffer.from(body),
     });
 
     if (!response.ok) {
@@ -202,7 +202,7 @@ export class Sandbox {
    * @param path - Absolute path where the file should be written.
    * @param content - Content to write to the file.
    */
-  async writeFile(path: string, content: string): Promise<void> {
+  async writeFile(path: string, content: string | Uint8Array): Promise<void> {
     const encodedPath = encodeURIComponent(path);
     await this.http.requestRawBody(
       "PUT",
@@ -230,7 +230,7 @@ export class Sandbox {
    */
   async mkdir(path: string): Promise<void> {
     const encodedPath = encodeURIComponent(path);
-    await this.http.request(
+    await this.http.requestNoContent(
       "POST",
       `/api/v1/sandboxes/${this.id}/files/mkdir?path=${encodedPath}`,
     );
