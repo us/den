@@ -40,9 +40,12 @@ jobs:
           bun install
           bun run build
       - uses: JS-DevTools/npm-publish@v3
+        if: env.NPM_TOKEN != ''
         with:
           token: ${{ secrets.NPM_TOKEN }}
           package: sdk/typescript
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-sdk-py:
     runs-on: ubuntu-latest
@@ -51,9 +54,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - working-directory: sdk/python
-        run: |
-          uv build
-          uv publish --token ${{ secrets.PYPI_TOKEN }}
+        run: uv build
+      - name: Publish to PyPI
+        if: env.PYPI_TOKEN != ''
+        working-directory: sdk/python
+        run: uv publish --token "$PYPI_TOKEN"
+        env:
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
 
   docker:
     runs-on: ubuntu-latest
@@ -63,14 +70,15 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push default image
         uses: docker/build-push-action@v6
         with:
           context: images/default
           push: true
           tags: |
-            den/default:latest
-            den/default:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/default:latest
+            ghcr.io/${{ github.repository }}/default:${{ github.ref_name }}
           platforms: linux/amd64,linux/arm64
