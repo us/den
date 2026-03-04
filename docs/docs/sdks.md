@@ -5,8 +5,8 @@ den provides official SDKs for Go, TypeScript, and Python.
 | SDK | Package | Install |
 |-----|---------|---------|
 | Go | [`github.com/us/den`](https://pkg.go.dev/github.com/us/den) | `go get github.com/us/den@latest` |
-| TypeScript | [`@den/sdk`](https://www.npmjs.com/package/@den/sdk) | `bun add @den/sdk` |
-| Python | [`den`](https://pypi.org/project/den/) | `uv add den` / `pip install den` |
+| TypeScript | [`@us4/den`](https://www.npmjs.com/package/@us4/den) | `bun add @us4/den` |
+| Python | [`den-sdk`](https://pypi.org/project/den-sdk/) | `uv add den-sdk` / `pip install den-sdk` |
 
 ## Go SDK
 
@@ -60,7 +60,7 @@ c.DestroySandbox(ctx, sb.ID)
 ## TypeScript SDK
 
 ```typescript
-import { Den } from '@den/sdk';
+import { Den } from '@us4/den';
 
 const den = new Den({
   url: 'http://localhost:8080',

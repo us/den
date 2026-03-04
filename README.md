@@ -2,11 +2,11 @@
   <h1 align="center">Den</h1>
   <p align="center">Self-hosted sandbox runtime for AI agents</p>
   <p align="center">
-    <a href="docs/getting-started.md">Getting Started</a> &bull;
+    <a href="docs/docs/quick-start.md">Getting Started</a> &bull;
     <a href="docs/api-reference.md">API Reference</a> &bull;
-    <a href="docs/sdk.md">SDKs</a> &bull;
-    <a href="docs/mcp.md">MCP Integration</a> &bull;
-    <a href="docs/configuration.md">Configuration</a>
+    <a href="docs/docs/sdks.md">SDKs</a> &bull;
+    <a href="docs/docs/mcp.md">MCP Integration</a> &bull;
+    <a href="docs/docs/configuration.md">Configuration</a>
   </p>
   <p align="center">
     <b>English</b> | <a href="README.zh-CN.md">中文</a>
@@ -34,7 +34,7 @@ den serve
 - **S3 sync (hooks mode)** — Automatically download files from S3 on sandbox create, upload back on destroy
 - **S3 sync (on-demand)** — Import/export files between sandboxes and S3 via REST API
 - **S3 FUSE mount** — Mount an S3 bucket as a filesystem inside the sandbox (requires `SYS_ADMIN`)
-- **Go, TypeScript, Python SDKs** — Updated with full storage type support
+- **Go, TypeScript (`@us4/den`), Python (`den-sdk`) SDKs** — Updated with full storage type support
 
 See [Configuration > Storage](docs/configuration.md#storage) for setup details.
 
@@ -57,12 +57,12 @@ AI agents need to run code, but running untrusted code on your machine is danger
 go get github.com/us/den@latest
 
 # TypeScript
-bun add @den/sdk
-# or: npm install @den/sdk
+bun add @us4/den
+# or: npm install @us4/den
 
 # Python
-pip install den
-# or: uv add den
+pip install den-sdk
+# or: uv add den-sdk
 ```
 
 ## Quick Start
@@ -255,12 +255,12 @@ Benchmarked on Apple Silicon (M-series):
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) — Installation, first sandbox, basic usage
+- [Getting Started](docs/docs/quick-start.md) — Installation, first sandbox, basic usage
 - [API Reference](docs/api-reference.md) — Complete REST API documentation
-- [Configuration](docs/configuration.md) — All config options explained
-- [SDK Guide](docs/sdk.md) — Go, TypeScript, and Python client libraries
-- [MCP Integration](docs/mcp.md) — Using Den with AI tools
-- [Architecture](docs/architecture.md) — Internal design and security model
+- [Configuration](docs/docs/configuration.md) — All config options explained
+- [SDK Guide](docs/docs/sdks.md) — Go, TypeScript, and Python client libraries
+- [MCP Integration](docs/docs/mcp.md) — Using Den with AI tools
+- [Architecture](docs/docs/architecture.md) — Internal design and security model
 - [CLI Reference](docs/cli.md) — Command-line interface
 
 ## CLI
