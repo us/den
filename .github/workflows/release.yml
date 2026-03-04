@@ -44,6 +44,7 @@ jobs:
         with:
           token: ${{ secrets.NPM_TOKEN }}
           package: sdk/typescript
+          access: public
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
