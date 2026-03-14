@@ -118,10 +118,10 @@ func DefaultConfig() *Config {
 		Sandbox: SandboxConfig{
 			DefaultImage:         "den/default:latest",
 			DefaultTimeout:       30 * time.Minute,
-			MaxSandboxes:         50,
-			DefaultCPU:           1_000_000_000, // 1 core
-			DefaultMemory:        512 * 1024 * 1024, // 512MB
-			DefaultPidLimit:      256,
+			MaxSandboxes:         100,
+			DefaultCPU:           500_000_000,       // 0.5 core (shared, not reserved)
+			DefaultMemory:        128 * 1024 * 1024,  // 128MB limit (actual usage much lower)
+			DefaultPidLimit:      128,
 			WarmPoolSize:         0,
 			AllowVolumes:         true,
 			AllowSharedVolumes:   true,
