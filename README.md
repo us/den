@@ -248,10 +248,11 @@ Benchmarked on Apple Silicon (M-series):
 | | **Den** | E2B | Daytona | Modal |
 |---|---|---|---|---|
 | Sandbox create | **~100ms** | ~150ms | ~90ms | 2-5s |
-| Pricing | **Free (OSS)** | $0.10/min+ | Free (complex) | $0.10/min+ |
+| Pricing | **Free** | $0.10/min+ | Free (complex) | $0.10/min+ |
 | Setup | **`curl \| sh`** | SDK + API key | Docker + K8s | SDK + API key |
-| Self-hosted | **Yes** | No | Yes (heavy) | No |
+| Self-hosted | **Easy (single binary)** | Hard (Firecracker+Nomad) | Heavy (K8s) | No |
 | Offline | **Yes** | No | Partial | No |
+| License | AGPL-3.0 | Apache-2.0 | Apache-2.0 | Proprietary |
 
 ## Documentation
 
