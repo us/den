@@ -564,3 +564,33 @@ class SandboxManager:
         """
         resp = await self._async_client.delete(f"{self._base_url}/{sandbox_id}")
         _raise_for_status(resp)
+
+    def restore_snapshot(self, snapshot_id: str) -> "Sandbox":
+        """Restore a sandbox from a snapshot (sync).
+
+        Args:
+            snapshot_id: The snapshot identifier.
+
+        Returns:
+            A new Sandbox instance created from the snapshot.
+        """
+        base = self._base_url.rsplit("/sandboxes", 1)[0]
+        resp = self._client.post(f"{base}/snapshots/{snapshot_id}/restore")
+        _raise_for_status(resp)
+        info = SandboxInfo.model_validate(resp.json())
+        return self._wrap(info)
+
+    async def arestore_snapshot(self, snapshot_id: str) -> "Sandbox":
+        """Restore a sandbox from a snapshot (async).
+
+        Args:
+            snapshot_id: The snapshot identifier.
+
+        Returns:
+            A new Sandbox instance created from the snapshot.
+        """
+        base = self._base_url.rsplit("/sandboxes", 1)[0]
+        resp = await self._async_client.post(f"{base}/snapshots/{snapshot_id}/restore")
+        _raise_for_status(resp)
+        info = SandboxInfo.model_validate(resp.json())
+        return self._wrap(info)
