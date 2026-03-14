@@ -103,6 +103,7 @@ func RegisterRoutes(r chi.Router, eng *engine.Engine, rt runtime.Runtime, cfg *c
 	ph := handlers.NewPortHandler(eng, logger)
 	snapH := handlers.NewSnapshotHandler(eng, logger)
 	statsH := handlers.NewStatsHandler(eng, logger)
+	resH := handlers.NewResourceHandler(eng, logger)
 	s3H := handlers.NewS3Handler(eng, cfg.S3, logger)
 	wsH := ws.NewExecHandler(eng, logger, cfg.Server.AllowedOrigins)
 
@@ -153,6 +154,9 @@ func RegisterRoutes(r chi.Router, eng *engine.Engine, rt runtime.Runtime, cfg *c
 		// Stats
 		r.Get("/sandboxes/{id}/stats", statsH.SandboxStats)
 		r.Get("/stats", statsH.SystemStats)
+
+		// Resource status
+		r.Get("/resources", resH.Status)
 
 		// WebSocket exec
 		r.Get("/sandboxes/{id}/exec/stream", wsH.Handle)

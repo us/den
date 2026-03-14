@@ -74,7 +74,7 @@ func newIntegrationEngine(t *testing.T) *engine.Engine {
 		},
 	}
 
-	eng := engine.NewEngine(rt, st, cfg, getTestS3Config(), logger)
+	eng := engine.NewEngine(rt, st, cfg, getTestS3Config(), config.DefaultConfig().Resource, logger)
 	t.Cleanup(func() { eng.Shutdown(context.Background()) })
 
 	return eng

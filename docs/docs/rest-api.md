@@ -16,7 +16,7 @@ Unauthenticated requests return `401 Unauthorized`.
 
 ```
 GET /api/v1/health        → {"status": "ok"}
-GET /api/v1/version       → {"version": "0.2.0", "commit": "abc1234", "build_date": "..."}
+GET /api/v1/version       → {"version": "0.0.6", "commit": "abc1234", "build_date": "..."}
 ```
 
 ## Sandboxes
@@ -283,6 +283,52 @@ System-wide:
 }
 ```
 
+## Resources
+
+### Resource Status
+
+```
+GET /api/v1/resources
+```
+
+Returns host memory, sandbox count, and pressure information.
+
+Response:
+
+```json
+{
+  "host": {
+    "memory_total": 8589934592,
+    "memory_used": 5368709120,
+    "memory_free": 3221225472,
+    "cpu_cores": 4
+  },
+  "sandboxes": {
+    "active": 42,
+    "total": 50
+  },
+  "pressure": {
+    "level": "normal",
+    "score": 0.625,
+    "can_create": true,
+    "next_threshold": 0.80
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `host.memory_total` | int | Total host memory in bytes |
+| `host.memory_used` | int | Used host memory in bytes |
+| `host.memory_free` | int | Available host memory in bytes |
+| `host.cpu_cores` | int | Number of CPU cores |
+| `sandboxes.active` | int | Currently running sandboxes |
+| `sandboxes.total` | int | Maximum allowed sandboxes |
+| `pressure.level` | string | Current pressure level: `normal`, `warning`, `high`, `critical`, `emergency` |
+| `pressure.score` | float | Memory usage ratio (0.0 - 1.0) |
+| `pressure.can_create` | bool | Whether new sandboxes can be created at current pressure |
+| `pressure.next_threshold` | float | Memory ratio that would trigger the next pressure level |
+
 ## Error Responses
 
 ```json
@@ -299,7 +345,7 @@ System-wide:
 | `413` | Payload too large (1MB JSON, 100MB upload) |
 | `429` | Rate limit exceeded |
 | `500` | Internal error |
-| `503` | Sandbox limit reached |
+| `503` | Sandbox limit reached or memory pressure too high (Critical/Emergency) |
 
 ## Rate Limiting
 

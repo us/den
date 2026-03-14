@@ -52,6 +52,14 @@ s3:
   access_key: ""
   secret_key: ""
 
+resource:
+  overcommit_ratio: 10.0          # Memory overcommit multiplier
+  pressure_threshold: 0.80        # Warning level (80%)
+  critical_threshold: 0.90        # Critical level (90%)
+  monitor_interval: "5s"          # Pressure sampling interval
+  enable_auto_throttle: true      # Dynamic memory.high adjustment
+  min_memory_floor: 33554432      # 32MB minimum per container
+
 store:
   path: "den.db"
 
@@ -83,6 +91,36 @@ Prefix `DEN_` with `__` as nesting separator:
 | `s3.endpoint` | `DEN_S3__ENDPOINT` |
 | `s3.access_key` | `DEN_S3__ACCESS_KEY` |
 | `s3.secret_key` | `DEN_S3__SECRET_KEY` |
+
+## Resource Management
+
+Controls host memory pressure monitoring and dynamic container throttling.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `resource.overcommit_ratio` | float | `10.0` | Memory overcommit multiplier. Higher = more sandboxes per server, but higher pressure risk |
+| `resource.pressure_threshold` | float | `0.80` | Memory usage ratio that triggers Warning level |
+| `resource.critical_threshold` | float | `0.90` | Memory usage ratio that triggers Critical level (blocks new sandboxes) |
+| `resource.monitor_interval` | duration | `5s` | How often to sample host memory pressure |
+| `resource.enable_auto_throttle` | bool | `true` | Automatically apply cgroup v2 `memory.high` limits when pressure rises |
+| `resource.min_memory_floor` | int | `33554432` (32MB) | Minimum memory per container, even under maximum pressure |
+
+### Environment Variables
+
+| Config | Environment Variable |
+|--------|---------------------|
+| `resource.overcommit_ratio` | `DEN_RESOURCE__OVERCOMMIT_RATIO` |
+| `resource.pressure_threshold` | `DEN_RESOURCE__PRESSURE_THRESHOLD` |
+| `resource.critical_threshold` | `DEN_RESOURCE__CRITICAL_THRESHOLD` |
+| `resource.monitor_interval` | `DEN_RESOURCE__MONITOR_INTERVAL` |
+| `resource.enable_auto_throttle` | `DEN_RESOURCE__ENABLE_AUTO_THROTTLE` |
+| `resource.min_memory_floor` | `DEN_RESOURCE__MIN_MEMORY_FLOOR` |
+
+### Notes
+
+- Pressure levels use hysteresis: 2 consecutive readings are required before the level changes, preventing flapping
+- On Linux, throttling uses direct cgroup v2 `memory.high` writes (sub-ms). On macOS, it falls back to Docker API
+- When `enable_auto_throttle` is false, pressure is still monitored and reported via `GET /api/v1/resources`, but no limits are applied
 
 ## Validation
 

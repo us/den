@@ -14,17 +14,19 @@
                     └─────┬─────┘
                           │
                     ┌─────┴─────┐
-                    │  Engine   │  Lifecycle, reaper, limits
-                    └─────┬─────┘
-                          │
-                ┌─────────┴─────────┐
-                │  Docker Runtime   │  Docker SDK
-                └─────────┬─────────┘
-                          │
-              ┌───────────┴───────────┐
-              │  Docker Containers    │
-              │  (isolated sandboxes) │
-              └───────────────────────┘
+                    │  Engine   │  Lifecycle, reaper, pressure
+                    └──┬────┬──┘
+                       │    │
+          ┌────────────┘    └────────────┐
+  ┌───────┴───────┐           ┌──────────┴─────────┐
+  │ Docker Runtime│           │  Storage Layer     │
+  │  Docker SDK   │           │  Volumes, S3, Tmpfs│
+  └───────┬───────┘           └──────────┬─────────┘
+          │                              │
+  ┌───────┴───────┐           ┌──────────┴─────────┐
+  │   Containers  │           │  S3 / MinIO        │
+  │  (sandboxes)  │           │  Docker Volumes    │
+  └───────────────┘           └────────────────────┘
 ```
 
 ## Layers
@@ -59,7 +61,7 @@ Orchestrates sandbox lifecycle and enforces business rules:
 - **Recovery** — On startup, loads from BoltDB, validates against Docker state, removes stale records
 - **Storage** — S3 hook init/cleanup, volume validation, tmpfs configuration
 
-Status machine: `creating → running → stopped / error`. Exec, ReadFile, WriteFile require `running` status.
+State machine: `creating → running → stopped / error`. Exec, ReadFile, WriteFile require `running` status.
 
 ### 3. Docker Runtime (`internal/runtime/docker/`)
 
@@ -95,7 +97,40 @@ BoltDB embedded key-value persistence:
 
 Used for crash recovery only. Engine validates store records against Docker state on startup.
 
-### 6. MCP Server (`internal/mcp/`)
+### 6. Resource Management (`internal/engine/`)
+
+Manages host memory pressure and dynamic container throttling.
+
+**Components:**
+
+- **PressureMonitor** — Observer pattern with 5-level pressure system and hysteresis (2 consecutive readings required to change level). Runs a sampling goroutine at configurable intervals (default 5s).
+- **MemoryBackend** — Platform abstraction interface:
+  - **Linux**: `/proc/meminfo` for host memory, direct cgroup v2 file reads for container limits
+  - **macOS**: `sysctl` for host memory, Docker API for container stats (development fallback)
+- **CgroupManager** — Direct cgroup v2 `memory.high` writes for sub-millisecond limit application. Falls back to Docker API `UpdateContainerResources` when direct access unavailable.
+
+**Auto-throttle flow:**
+
+```
+Host pressure rises → PressureMonitor detects level change (with hysteresis)
+  → Calculate per-container memory.high = (available memory) / (active containers)
+  → Apply floor (min 32MB per container)
+  → Write memory.high to each container's cgroup
+  → Containers slow down (throttled, not killed)
+  → Host pressure drops → Remove memory.high limits (write "max")
+```
+
+**Pressure levels and actions:**
+
+| Level | Memory Usage | Action |
+|-------|-------------|--------|
+| Normal | < 80% | No limits applied |
+| Warning | 80-85% | Log warning |
+| High | 85-90% | Apply `memory.high` to containers |
+| Critical | 90-95% | Aggressive throttle + reject new sandboxes (503) |
+| Emergency | > 95% | Maximum throttle + reject new sandboxes (503) |
+
+### 7. MCP Server (`internal/mcp/`)
 
 JSON-RPC 2.0 over stdio. Creates its own Engine + Docker Runtime instance (does not use HTTP API). Binary file content auto-base64-encoded. Logs to stderr.
 
@@ -107,7 +142,7 @@ JSON-RPC 2.0 over stdio. Creates its own Engine + Docker Runtime instance (does 
 | Root filesystem | Read-only (`ReadonlyRootfs: true`) |
 | Privileges | `no-new-privileges` security option |
 | PID limit | Default 256 (prevents fork bombs) |
-| Memory limit | Default 512MB (OOM kill on exceed) |
+| Memory limit | Default 512MB (soft throttle via `memory.high`; OOM kill only at `memory.max`) |
 | CPU limit | Default 1 core |
 | Network | Internal Docker network (`den-net`) |
 | Port binding | `127.0.0.1` only |
@@ -118,8 +153,9 @@ JSON-RPC 2.0 over stdio. Creates its own Engine + Docker Runtime instance (does 
 - **sync.Map** — Thread-safe sandbox storage (lock-free reads)
 - **sync.RWMutex** — Per-sandbox status access
 - **sync.Mutex** — Sandbox counter for limit enforcement
-- **sync.Once** — Shutdown guard (prevents double-close)
-- **Goroutines** — Reaper, rate limiter cleanup (5 min), ExecStream readers, WebSocket handlers
+- **sync.Once** — Shutdown guard (prevents double-close); also used for `PressureMonitor.Start()` (double-start protection)
+- **doneCh (chan struct{})** — `PressureMonitor.Stop()` blocks until goroutine finishes via `doneCh` (prevents send-on-closed-channel panic)
+- **Goroutines** — Reaper, rate limiter cleanup (5 min), PressureMonitor sampler, ExecStream readers, WebSocket handlers
 
 ## Performance
 

@@ -194,4 +194,7 @@ type Runtime interface {
 
 	// Stats
 	Stats(ctx context.Context, id string) (*SandboxStats, error)
+
+	// Resource management
+	UpdateMemoryLimit(ctx context.Context, id string, memoryBytes int64) error
 }

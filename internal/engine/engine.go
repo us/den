@@ -21,35 +21,54 @@ import (
 )
 
 var (
-	ErrNotFound     = errors.New("sandbox not found")
-	ErrNotRunning   = errors.New("sandbox is not running")
-	ErrLimitReached = errors.New("maximum sandbox limit reached")
+	ErrNotFound         = errors.New("sandbox not found")
+	ErrNotRunning       = errors.New("sandbox is not running")
+	ErrLimitReached     = errors.New("maximum sandbox limit reached")
+	ErrPressureTooHigh  = errors.New("host under critical memory pressure")
 )
 
 // Engine orchestrates sandbox lifecycle.
 type Engine struct {
-	runtime      runtime.Runtime
-	store        store.Store
-	config       config.SandboxConfig
-	s3Config     config.S3Config
-	sandboxes    sync.Map // map[string]*Sandbox
-	mu           sync.Mutex
-	count        int
-	logger       *slog.Logger
-	stopReaper   chan struct{}
-	shutdownOnce sync.Once
+	runtime         runtime.Runtime
+	store           store.Store
+	config          config.SandboxConfig
+	s3Config        config.S3Config
+	resourceConfig  config.ResourceConfig
+	sandboxes       sync.Map // map[string]*Sandbox
+	mu              sync.Mutex
+	count           int
+	logger          *slog.Logger
+	stopCh      chan struct{}
+	shutdownOnce    sync.Once
+	pressureMonitor *PressureMonitor
+	pressureCh      chan PressureEvent
 }
 
 // NewEngine creates a new Engine.
-func NewEngine(rt runtime.Runtime, st store.Store, cfg config.SandboxConfig, s3Cfg config.S3Config, logger *slog.Logger) *Engine {
+func NewEngine(rt runtime.Runtime, st store.Store, cfg config.SandboxConfig, s3Cfg config.S3Config, resCfg config.ResourceConfig, logger *slog.Logger) *Engine {
 	e := &Engine{
-		runtime:    rt,
-		store:      st,
-		config:     cfg,
-		s3Config:   s3Cfg,
-		logger:     logger,
-		stopReaper: make(chan struct{}),
+		runtime:        rt,
+		store:          st,
+		config:         cfg,
+		s3Config:       s3Cfg,
+		resourceConfig: resCfg,
+		logger:         logger,
+		stopCh:     make(chan struct{}),
+		pressureCh:     make(chan PressureEvent, 16),
 	}
+
+	// Start pressure monitor with config-driven thresholds
+	backend := NewPlatformMemoryBackend()
+	thresholds := PressureThresholds{
+		Warning:   resCfg.PressureThreshold - 0.10, // One level below pressure threshold
+		High:      resCfg.PressureThreshold,
+		Critical:  resCfg.CriticalThreshold,
+		Emergency: resCfg.CriticalThreshold + 0.05,
+	}
+	e.pressureMonitor = NewPressureMonitor(backend, resCfg.MonitorInterval, thresholds, logger)
+	e.pressureMonitor.Subscribe(e.pressureCh)
+	e.pressureMonitor.Start()
+	go e.handlePressureEvents()
 
 	// Restore sandboxes from store
 	e.restoreFromStore()
@@ -60,9 +79,143 @@ func NewEngine(rt runtime.Runtime, st store.Store, cfg config.SandboxConfig, s3C
 	return e
 }
 
+// SandboxCount returns total and running sandbox counts without allocating a slice.
+func (e *Engine) SandboxCount() (total, running int) {
+	e.sandboxes.Range(func(_, v any) bool {
+		total++
+		if v.(*Sandbox).GetStatus() == runtime.StatusRunning {
+			running++
+		}
+		return true
+	})
+	return
+}
+
+// CurrentPressure returns the current pressure event.
+func (e *Engine) CurrentPressure() PressureEvent {
+	return e.pressureMonitor.CurrentEvent()
+}
+
+// PressureThresholds returns the configured pressure thresholds.
+func (e *Engine) PressureThresholds() PressureThresholds {
+	return e.pressureMonitor.thresholds
+}
+
+// handlePressureEvents processes pressure level changes from the monitor.
+func (e *Engine) handlePressureEvents() {
+	for {
+		select {
+		case evt, ok := <-e.pressureCh:
+			if !ok {
+				return
+			}
+			e.onPressureChange(evt)
+		case <-e.stopCh:
+			return
+		}
+	}
+}
+
+func (e *Engine) onPressureChange(evt PressureEvent) {
+	defer func() {
+		if r := recover(); r != nil {
+			e.logger.Error("panic in pressure handler, recovered", "panic", r)
+		}
+	}()
+
+	switch evt.Level {
+	case PressureNormal, PressureWarning:
+		if e.resourceConfig.EnableAutoThrottle {
+			e.logger.Info("memory pressure eased, removing container memory limits",
+				"level", evt.Level.String(), "score", evt.Score)
+			e.removeContainerMemoryLimits()
+		}
+	case PressureHigh:
+		if e.resourceConfig.EnableAutoThrottle {
+			e.logger.Warn("high memory pressure, updating container memory limits",
+				"score", evt.Score)
+			e.updateContainerMemoryLimits(evt)
+		}
+	case PressureCritical, PressureEmergency:
+		e.logger.Error("critical memory pressure",
+			"level", evt.Level.String(),
+			"score", evt.Score,
+		)
+		if e.resourceConfig.EnableAutoThrottle {
+			e.updateContainerMemoryLimits(evt)
+		}
+	}
+}
+
+// removeContainerMemoryLimits restores unlimited memory for all running containers.
+func (e *Engine) removeContainerMemoryLimits() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	e.sandboxes.Range(func(_, v any) bool {
+		sb := v.(*Sandbox)
+		if sb.GetStatus() == runtime.StatusRunning {
+			// 0 means remove the limit (unlimited)
+			if err := e.runtime.UpdateMemoryLimit(ctx, sb.ID, 0); err != nil {
+				e.logger.Warn("failed to remove memory limit", "id", sb.ID, "error", err)
+			}
+		}
+		return true
+	})
+}
+
+// memoryHighSafetyFactor is the fraction of free memory to distribute among containers.
+// 0.8 means retain 20% headroom for host/system processes.
+const memoryHighSafetyFactor = 0.8
+
+func (e *Engine) updateContainerMemoryLimits(evt PressureEvent) {
+	// Single Range pass: collect running sandbox IDs for consistent snapshot
+	var targets []string
+	e.sandboxes.Range(func(_, v any) bool {
+		sb := v.(*Sandbox)
+		if sb.GetStatus() == runtime.StatusRunning {
+			targets = append(targets, sb.ID)
+		}
+		return true
+	})
+
+	if len(targets) == 0 {
+		return
+	}
+
+	// Calculate memory.high per container with underflow guard
+	var freeMemory uint64
+	if evt.MemoryTotal > evt.MemoryUsed {
+		freeMemory = evt.MemoryTotal - evt.MemoryUsed
+	}
+	memoryHigh := int64(float64(freeMemory)*memoryHighSafetyFactor) / int64(len(targets))
+	minFloor := e.resourceConfig.MinMemoryFloor
+	if memoryHigh < minFloor {
+		memoryHigh = minFloor
+	}
+
+	e.logger.Info("adjusting container memory limits",
+		"memory_high", memoryHigh,
+		"active_containers", len(targets),
+	)
+
+	// Apply memory limits to collected targets
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, id := range targets {
+		if err := e.runtime.UpdateMemoryLimit(ctx, id, memoryHigh); err != nil {
+			e.logger.Warn("failed to update memory limit", "id", id, "error", err)
+		}
+	}
+}
+
 // CreateSandbox creates and starts a new sandbox.
 func (e *Engine) CreateSandbox(ctx context.Context, cfg runtime.SandboxConfig) (*Sandbox, error) {
 	e.mu.Lock()
+	// Check pressure under lock to prevent TOCTOU race
+	if pressure := e.pressureMonitor.CurrentEvent(); pressure.Level >= PressureCritical {
+		e.mu.Unlock()
+		return nil, ErrPressureTooHigh
+	}
 	if e.count >= e.config.MaxSandboxes {
 		e.mu.Unlock()
 		return nil, ErrLimitReached
@@ -312,8 +465,12 @@ func (e *Engine) Snapshot(ctx context.Context, id string, name string) (*runtime
 
 // RestoreSnapshot restores a sandbox from a snapshot.
 func (e *Engine) RestoreSnapshot(ctx context.Context, snapshotID string) (*Sandbox, error) {
-	// Enforce sandbox limit
 	e.mu.Lock()
+	// Check pressure under lock
+	if pressure := e.pressureMonitor.CurrentEvent(); pressure.Level >= PressureCritical {
+		e.mu.Unlock()
+		return nil, ErrPressureTooHigh
+	}
 	if e.count >= e.config.MaxSandboxes {
 		e.mu.Unlock()
 		return nil, ErrLimitReached
@@ -388,7 +545,8 @@ func (e *Engine) Stats(ctx context.Context, id string) (*runtime.SandboxStats, e
 // Uses a detached context so shutdown is not cancelled by the caller's context.
 func (e *Engine) Shutdown(_ context.Context) {
 	e.shutdownOnce.Do(func() {
-		close(e.stopReaper)
+		e.pressureMonitor.Stop() // Wait for monitor goroutine to finish before closing stopCh
+		close(e.stopCh)
 
 		// Use background context to ensure cleanup completes even if caller cancels
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -424,7 +582,7 @@ func (e *Engine) reaper() {
 		select {
 		case <-ticker.C:
 			e.reapExpired()
-		case <-e.stopReaper:
+		case <-e.stopCh:
 			return
 		}
 	}

@@ -13,13 +13,24 @@ import (
 
 // Config holds all configuration for the den server.
 type Config struct {
-	Server  ServerConfig  `koanf:"server"`
-	Runtime RuntimeConfig `koanf:"runtime"`
-	Sandbox SandboxConfig `koanf:"sandbox"`
-	Store   StoreConfig   `koanf:"store"`
-	Auth    AuthConfig    `koanf:"auth"`
-	Log     LogConfig     `koanf:"log"`
-	S3      S3Config      `koanf:"s3"`
+	Server   ServerConfig   `koanf:"server"`
+	Runtime  RuntimeConfig  `koanf:"runtime"`
+	Sandbox  SandboxConfig  `koanf:"sandbox"`
+	Store    StoreConfig    `koanf:"store"`
+	Auth     AuthConfig     `koanf:"auth"`
+	Log      LogConfig      `koanf:"log"`
+	S3       S3Config       `koanf:"s3"`
+	Resource ResourceConfig `koanf:"resource"`
+}
+
+// ResourceConfig holds shared resource management settings.
+type ResourceConfig struct {
+	OvercommitRatio    float64       `koanf:"overcommit_ratio"`
+	PressureThreshold  float64       `koanf:"pressure_threshold"`
+	CriticalThreshold  float64       `koanf:"critical_threshold"`
+	MonitorInterval    time.Duration `koanf:"monitor_interval"`
+	EnableAutoThrottle bool          `koanf:"enable_auto_throttle"`
+	MinMemoryFloor     int64         `koanf:"min_memory_floor"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -119,9 +130,9 @@ func DefaultConfig() *Config {
 			DefaultImage:         "den/default:latest",
 			DefaultTimeout:       30 * time.Minute,
 			MaxSandboxes:         100,
-			DefaultCPU:           500_000_000,       // 0.5 core (shared, not reserved)
-			DefaultMemory:        128 * 1024 * 1024,  // 128MB limit (actual usage much lower)
-			DefaultPidLimit:      128,
+			DefaultCPU:           0,   // 0 = no limit, shared across all containers
+			DefaultMemory:        0,   // 0 = no limit, all containers share host RAM
+			DefaultPidLimit:      256,
 			WarmPoolSize:         0,
 			AllowVolumes:         true,
 			AllowSharedVolumes:   true,
@@ -148,6 +159,14 @@ func DefaultConfig() *Config {
 		Log: LogConfig{
 			Level:  "info",
 			Format: "text",
+		},
+		Resource: ResourceConfig{
+			OvercommitRatio:    10.0,
+			PressureThreshold:  0.80,
+			CriticalThreshold:  0.90,
+			MonitorInterval:    5 * time.Second,
+			EnableAutoThrottle: true,
+			MinMemoryFloor:     32 * 1024 * 1024, // 32MB
 		},
 	}
 }
@@ -183,6 +202,21 @@ func (c *Config) Validate() error {
 	if c.Sandbox.DefaultMemory > 0 && c.Sandbox.DefaultMemory < 4*1024*1024 {
 		return fmt.Errorf("default_memory must be at least 4MB")
 	}
+
+	// Resource config validation
+	if c.Resource.PressureThreshold >= c.Resource.CriticalThreshold {
+		return fmt.Errorf("pressure_threshold must be less than critical_threshold")
+	}
+	if c.Resource.CriticalThreshold >= 1.0 {
+		return fmt.Errorf("critical_threshold must be less than 1.0")
+	}
+	if c.Resource.MinMemoryFloor < 4*1024*1024 {
+		return fmt.Errorf("min_memory_floor must be at least 4MB")
+	}
+	if c.Resource.MonitorInterval < 1*time.Second {
+		return fmt.Errorf("monitor_interval must be at least 1s")
+	}
+
 	return nil
 }
 

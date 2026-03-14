@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	goruntime "runtime"
 	"syscall"
 	"time"
 
@@ -128,8 +129,11 @@ func serveCmd() *cobra.Command {
 				logger.Warn("authentication is DISABLED — API is publicly accessible, set auth.enabled=true in production")
 			}
 
+			// Protect Den process from OOM killer (Linux only)
+			protectProcess(logger)
+
 			// Setup engine
-			eng := engine.NewEngine(rt, st, cfg.Sandbox, cfg.S3, logger)
+			eng := engine.NewEngine(rt, st, cfg.Sandbox, cfg.S3, cfg.Resource, logger)
 
 			// Setup API server
 			srv := api.NewServer(eng, rt, cfg, logger)
@@ -159,6 +163,20 @@ func serveCmd() *cobra.Command {
 				return srv.Shutdown(shutdownCtx)
 			}
 		},
+	}
+}
+
+// protectProcess sets a low OOM score for the Den process on Linux.
+// This makes it less likely to be killed when the host is under memory pressure.
+func protectProcess(logger *slog.Logger) {
+	if goruntime.GOOS != "linux" {
+		return
+	}
+	// -900, not -1000 — kernel critical processes should be protected
+	if err := os.WriteFile("/proc/self/oom_score_adj", []byte("-900"), 0644); err != nil {
+		logger.Warn("failed to set OOM score adjustment", "error", err)
+	} else {
+		logger.Debug("set OOM score adjustment to -900")
 	}
 }
 

@@ -33,9 +33,9 @@ func newTestEngine(t *testing.T) (*Engine, *enginetest.MockRuntime) {
 		DefaultPidLimit: 256,
 	}
 
-	eng := NewEngine(mock, st, cfg, config.S3Config{}, slog.Default())
+	eng := NewEngine(mock, st, cfg, config.S3Config{}, config.DefaultConfig().Resource, slog.Default())
 	t.Cleanup(func() {
-		close(eng.stopReaper)
+		eng.Shutdown(context.Background())
 	})
 
 	return eng, mock

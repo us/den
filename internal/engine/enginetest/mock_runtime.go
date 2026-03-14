@@ -2,6 +2,7 @@ package enginetest
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/us/den/internal/runtime"
@@ -9,6 +10,7 @@ import (
 
 // MockRuntime implements runtime.Runtime for testing.
 type MockRuntime struct {
+	mu      sync.Mutex
 	Created map[string]runtime.SandboxConfig
 	Started map[string]bool
 	Stopped map[string]bool
@@ -29,21 +31,29 @@ func NewMockRuntime() *MockRuntime {
 func (m *MockRuntime) Ping(ctx context.Context) error { return nil }
 
 func (m *MockRuntime) Create(ctx context.Context, id string, cfg runtime.SandboxConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Created[id] = cfg
 	return nil
 }
 
 func (m *MockRuntime) Start(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Started[id] = true
 	return nil
 }
 
 func (m *MockRuntime) Stop(ctx context.Context, id string, timeout time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Stopped[id] = true
 	return nil
 }
 
 func (m *MockRuntime) Remove(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Removed[id] = true
 	return nil
 }
@@ -105,4 +115,8 @@ func (m *MockRuntime) RemoveSnapshot(ctx context.Context, snapshotID string) err
 
 func (m *MockRuntime) Stats(ctx context.Context, id string) (*runtime.SandboxStats, error) {
 	return &runtime.SandboxStats{CPUPercent: 5.0, MemoryUsage: 1024}, nil
+}
+
+func (m *MockRuntime) UpdateMemoryLimit(ctx context.Context, id string, memoryBytes int64) error {
+	return nil
 }

@@ -1,10 +1,45 @@
-# den
+# Den
 
 Self-hosted, open-source sandbox runtime for AI agents. Run untrusted LLM-generated code in secure, isolated Docker containers with fine-grained resource limits.
+
+> **100 sandboxes on E2B = ~$600/hour. 100 sandboxes on Den = one $5/month server.**
 
 ## Why den?
 
 AI agents need to execute code, but running arbitrary LLM output on your machine is dangerous. Cloud sandbox services (E2B etc.) add latency, cost, and vendor lock-in. den gives you the same functionality as a single Go binary you self-host.
+
+## Shared Resource Model
+
+Traditional sandbox runtimes allocate fixed resources per container. If each sandbox gets a dedicated 512MB, a server with 8GB RAM can only run ~10 sandboxes before hitting the wall — even when most of them are idle.
+
+Den takes a different approach inspired by Google Borg and AWS Firecracker: **shared memory with pressure-based throttling**.
+
+| Approach | Model | 8GB Server Capacity |
+|----------|-------|---------------------|
+| **Traditional** (E2B, etc.) | Fixed 512MB per container | ~10 sandboxes |
+| **Den** (shared resources) | Shared memory + pressure monitoring | **100+ sandboxes** |
+
+### How it works
+
+1. **Overcommit** — Den allows 10x memory overcommit by default. Most sandboxes use a fraction of their allocated memory at any given time.
+2. **Pressure monitoring** — A background goroutine samples host memory every 5 seconds and classifies pressure into 5 levels:
+   - **Normal** (< 80%) — No action
+   - **Warning** (80-85%) — Logged, no action
+   - **High** (85-90%) — Per-container `memory.high` limits applied via cgroup v2
+   - **Critical** (90-95%) — Aggressive throttling, new sandbox creation blocked (HTTP 503)
+   - **Emergency** (> 95%) — Maximum throttling, creation blocked
+3. **Soft limits, not hard kills** — Den uses cgroup v2 `memory.high` (throttle) instead of `memory.max` (OOM kill). Containers slow down under pressure but keep running.
+4. **Auto-recovery** — When pressure drops back to Normal/Warning, memory limits are automatically removed.
+
+### Cost comparison
+
+| Setup | Sandboxes | Cost | Per-sandbox cost |
+|-------|-----------|------|------------------|
+| **E2B** | 100 | $0.10/min × 100 = **$600/hr** | $6.00/hr |
+| **Den** (Hetzner CX22) | 100 | **$5/month** | $0.05/month |
+| **Den** (bare metal) | 100 | One-time hardware cost | Effectively free |
+
+That's a **120x cost reduction** for the same workload.
 
 - **Isolated Docker containers** with all capabilities dropped, read-only rootfs, PID limits
 - **REST API + WebSocket** for sandbox lifecycle, command execution, file operations

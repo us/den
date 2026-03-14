@@ -81,6 +81,10 @@ func (h *SandboxHandler) Create(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusTooManyRequests, "maximum sandbox limit reached")
 			return
 		}
+		if errors.Is(err, engine.ErrPressureTooHigh) {
+			writeError(w, http.StatusServiceUnavailable, "host under critical memory pressure")
+			return
+		}
 		h.logger.Error("failed to create sandbox", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to create sandbox")
 		return

@@ -307,8 +307,19 @@ func (r *DockerRuntime) Stats(ctx context.Context, id string) (*runtime.SandboxS
 	return mapStats(&statsResp), nil
 }
 
-func (r *DockerRuntime) containerName(id string) string {
+// ContainerName returns the Docker container name for a sandbox ID.
+func ContainerName(id string) string {
 	return "den-" + id
+}
+
+func (r *DockerRuntime) containerName(id string) string {
+	return ContainerName(id)
+}
+
+// UpdateMemoryLimit dynamically updates the memory limit for a container.
+func (r *DockerRuntime) UpdateMemoryLimit(ctx context.Context, id string, memoryBytes int64) error {
+	cm := &CgroupManager{cli: r.cli, logger: r.logger}
+	return cm.UpdateMemoryHigh(ctx, id, memoryBytes)
 }
 
 func mapContainerStatus(state *container.State) runtime.SandboxStatus {

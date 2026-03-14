@@ -19,6 +19,8 @@ Den gives AI agents secure, isolated sandbox environments to execute code. It's 
 
 **Single binary. Zero config. Works with any AI framework.**
 
+> **100 sandboxes on E2B = ~$600/hour. 100 sandboxes on Den = one $5/month server.**
+
 ```
 curl -sSL https://get.den.dev | sh
 den serve
@@ -26,23 +28,29 @@ den serve
 
 ## What's New
 
-### Storage Layer (v0.0.2)
+### Shared Resource Management (v0.0.6)
 
-- **Configurable tmpfs** — Per-sandbox tmpfs size overrides (e.g. `/tmp` with 128MB instead of default 256MB)
-- **Persistent volumes** — Docker named volumes that survive sandbox destruction
-- **Shared volumes** — Mount the same volume across multiple sandboxes (read-write or read-only)
-- **S3 sync (hooks mode)** — Automatically download files from S3 on sandbox create, upload back on destroy
-- **S3 sync (on-demand)** — Import/export files between sandboxes and S3 via REST API
-- **S3 FUSE mount** — Mount an S3 bucket as a filesystem inside the sandbox (requires `SYS_ADMIN`)
-- **Go, TypeScript (`@us4/den`), Python (`den-sdk`) SDKs** — Updated with full storage type support
+- **Memory pressure monitoring** — Real-time 5-level pressure system (Normal → Warning → High → Critical → Emergency) with hysteresis
+- **Dynamic memory throttling** — Automatic per-container cgroup v2 `memory.high` adjustment based on host pressure
+- **Pressure-aware scheduling** — New sandboxes rejected at Critical/Emergency (HTTP 503)
+- **Resource status API** — `GET /api/v1/resources` for host memory, pressure level, and sandbox metrics
+- **Platform support** — Linux (direct cgroup v2, `/proc/meminfo`) and macOS (Docker API fallback)
+- **Auto-recovery** — Memory limits automatically removed when pressure drops
 
-See [Configuration > Storage](docs/configuration.md#storage) for setup details.
+### Storage Layer (v0.0.5)
+
+- **Persistent & shared volumes** — Docker named volumes, cross-sandbox mounting (RW/RO)
+- **S3 integration** — Hooks sync, on-demand import/export, FUSE mount
+- **Go, TypeScript (`@us4/den`), Python (`den-sdk`) SDKs** — Full storage type support
+
+See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## Why Den?
 
 AI agents need to run code, but running untrusted code on your machine is dangerous. Den solves this by providing:
 
 - **Isolated containers** — Each sandbox runs in its own Docker container with dropped capabilities, read-only rootfs, PID limits, and resource constraints
+- **Shared resource model** — Containers share host memory intelligently instead of fixed allocation. Dynamic pressure monitoring with auto-throttle (Google Borg / AWS Firecracker approach). 10x overcommit = 10x more sandboxes per dollar
 - **Simple REST API** — Create sandboxes, execute commands, read/write files, manage snapshots — all via HTTP
 - **WebSocket streaming** — Real-time command output for interactive use cases
 - **MCP server** — Native Model Context Protocol support for Claude, Cursor, and other AI tools
@@ -179,6 +187,7 @@ Now Claude can create sandboxes, run code, and manage files directly.
 | **S3 Sync** | Import/export files via hooks, on-demand API, or FUSE mount |
 | **Port Forwarding** | Expose sandbox ports to host (bound to 127.0.0.1) |
 | **Resource Limits** | CPU, memory, PID limits per sandbox |
+| **Pressure Monitoring** | Host memory pressure detection with dynamic throttling |
 | **Auto-Expiry** | Sandboxes auto-destroy after configurable timeout |
 | **Rate Limiting** | Per-key rate limiting on all API endpoints |
 | **API Key Auth** | Header-based authentication with constant-time comparison |
@@ -196,6 +205,7 @@ Den takes security seriously. Every sandbox runs with:
 - **Network isolation** — Containers on internal Docker network
 - **Port binding** — Forwarded ports bind to `127.0.0.1` only
 - **Path validation** — Null byte and traversal protection on all file operations
+- **Dynamic memory throttling** — cgroup v2 `memory.high` based throttling instead of hard kills; 5-level pressure system with auto-recovery
 - **Constant-time auth** — API key comparison resistant to timing attacks
 - **No error leaking** — Internal errors are logged, generic messages returned to clients
 
@@ -213,7 +223,7 @@ Den takes security seriously. Every sandbox runs with:
                     └─────┬─────┘
                           │
                     ┌─────┴─────┐
-                    │  Engine   │  Lifecycle, reaper, limits
+                    │  Engine   │  Lifecycle, reaper, pressure
                     └──┬────┬──┘
                        │    │
           ┌────────────┘    └────────────┐
@@ -236,9 +246,9 @@ Benchmarked on Apple Silicon (M-series):
 |-----------|---------|-------|
 | API health check | < 1ms | Near-zero overhead |
 | Create sandbox | ~100ms | Cold start; warm pool brings this to ~5ms |
-| Execute command | ~30ms | Including Docker exec round-trip |
-| Read file | ~10ms | Docker tar API |
-| Write file | ~40ms | Docker tar API with auto-mkdir |
+| Execute command | ~20-30ms | Including Docker exec round-trip |
+| Read file | ~28-30ms | Exec-based file I/O |
+| Write file | ~56-70ms | Exec-based with auto-mkdir |
 | Destroy sandbox | ~1s | SIGTERM + cleanup |
 | Parallel create (5x) | ~42ms/each | Concurrent container creation |
 | Parallel exec (10x) | ~7ms/each | Concurrent command execution |
@@ -249,6 +259,7 @@ Benchmarked on Apple Silicon (M-series):
 |---|---|---|---|---|
 | Sandbox create | **~100ms** | ~150ms | ~90ms | 2-5s |
 | Pricing | **Free** | $0.10/min+ | Free (complex) | $0.10/min+ |
+| Max sandboxes/server | **100+ (shared resources)** | ~10 (dedicated) | ~10 (K8s pods) | N/A (cloud) |
 | Setup | **`curl \| sh`** | SDK + API key | Docker + K8s | SDK + API key |
 | Self-hosted | **Easy (single binary)** | Hard (Firecracker+Nomad) | Heavy (K8s) | No |
 | Offline | **Yes** | No | Partial | No |
@@ -307,9 +318,14 @@ auth:
   enabled: true
   api_keys:
     - "your-secret-key"
+
+resource:
+  overcommit_ratio: 10.0
+  monitor_interval: "5s"
+  enable_auto_throttle: true
 ```
 
-See [Configuration Guide](docs/configuration.md) for all options.
+See [Configuration Guide](docs/docs/configuration.md) for all options.
 
 ## Contributing
 
