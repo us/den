@@ -13,7 +13,7 @@ test:
 	go test ./internal/... -short -v
 
 test-integration:
-	go test ./internal/... -v -run Integration
+	go test -tags integration ./internal/... ./tests/... -run TestIntegration -v
 
 test-sdk:
 	cd sdk/typescript && bun test

@@ -53,26 +53,83 @@ jobs:
           name: den-${{ matrix.goos }}-${{ matrix.goarch }}
           path: den-${{ matrix.goos }}-${{ matrix.goarch }}
 
+  # v9 single CI topology: the job runs inside a container so the `docker`
+  # service-network alias resolves, giving the Go Docker SDK a TLS-free daemon
+  # at tcp://docker:2375. Mandatory gate is API-level only (no container-name
+  # discovery). Bootstrap paradox: the Phase-0 PR that introduces this job is
+  # itself evaluated under the OLD workflow on the base branch, so this job
+  # first runs for real on the follow-up push to main (and locally via
+  # `make test-integration`).
   integration-test:
     runs-on: ubuntu-latest
     needs: [test]
-    if: github.event_name == 'push'
+    container: golang:1.25
     services:
       docker:
         image: docker:dind
         options: --privileged
+        env:
+          DOCKER_TLS_CERTDIR: ""
+    env:
+      DOCKER_HOST: tcp://docker:2375
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-      - name: Run integration tests
-        run: go test ./internal/... -v -run Integration
+      - name: Install docker CLI
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends docker.io ca-certificates
+      - name: Verify Docker daemon is reachable
+        run: |
+          set -e
+          for i in $(seq 1 30); do
+            if docker info >/dev/null 2>&1; then
+              echo "Docker daemon reachable after $i attempt(s)"
+              docker info
+              exit 0
+            fi
+            echo "Docker not ready yet (attempt $i/30), retrying..."
+            sleep 2
+          done
+          echo "::error::Docker daemon unreachable at $DOCKER_HOST after 60s"
+          exit 1
+      - name: Integration test meta-check (build tags + naming)
+        run: |
+          set -euo pipefail
+          fail=0
+          shopt -s nullglob
+          for f in tests/integration/*_test.go; do
+            if [ "$(head -1 "$f")" != "//go:build integration" ]; then
+              echo "::error file=$f::missing '//go:build integration' on line 1"
+              fail=1
+            fi
+            while read -r fn; do
+              case "$fn" in
+                TestIntegration_*) ;;
+                *) echo "::error file=$f::exported test '$fn' must match ^TestIntegration_"
+                   fail=1 ;;
+              esac
+            done < <(grep -oE '^func (Test[A-Za-z0-9_]+)' "$f" | awk '{print $2}')
+          done
+          exit $fail
+      - name: Run integration tests (with min-test-count gate)
+        run: |
+          set -euo pipefail
+          expected=$(grep -rhoE '^func (TestIntegration_[A-Za-z0-9_]+)\(' \
+            tests/integration internal 2>/dev/null \
+            | awk '{print $2}' | sed 's/($//' | sort -u | wc -l | tr -d ' ')
+          echo "Expecting at least $expected TestIntegration_ top-level test(s)"
+          go test -tags integration ./internal/... ./tests/... \
+            -run TestIntegration -v 2>&1 | tee /tmp/itest.out
+          ran=$(grep -cE '^=== RUN   TestIntegration_[A-Za-z0-9_]+$' /tmp/itest.out || true)
+          echo "Ran $ran top-level TestIntegration_ test(s)"
+          if [ "$ran" -lt "$expected" ] || [ "$ran" -eq 0 ]; then
+            echo "::error::min-test-count gate failed: ran=$ran expected>=$expected (build tag / -run filter likely excluded all tests)"
+            exit 1
+          fi
 
   sdk-test:
     runs-on: ubuntu-latest
     needs: [integration-test]
-    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

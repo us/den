@@ -53,7 +53,7 @@ func newIntegrationEngine(t *testing.T) *engine.Engine {
 
 	ctx := context.Background()
 	require.NoError(t, rt.Ping(ctx))
-	rt.EnsureNetwork(ctx)
+	require.NoError(t, rt.EnsureNetwork(ctx))
 
 	cfg := config.SandboxConfig{
 		DefaultImage:         "alpine:latest",
