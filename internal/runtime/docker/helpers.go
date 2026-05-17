@@ -45,14 +45,14 @@ func mapStats(s *container.StatsResponse) *runtime.SandboxStats {
 
 	return &runtime.SandboxStats{
 		CPUPercent:    cpuPercent,
-		MemoryUsage:  int64(s.MemoryStats.Usage),
-		MemoryLimit:  int64(s.MemoryStats.Limit),
+		MemoryUsage:   int64(s.MemoryStats.Usage),
+		MemoryLimit:   int64(s.MemoryStats.Limit),
 		MemoryPercent: memPercent,
-		NetworkRx:    netRx,
-		NetworkTx:    netTx,
-		DiskRead:     diskRead,
-		DiskWrite:    diskWrite,
-		PidCount:     int64(s.PidsStats.Current),
-		Timestamp:    time.Now().UTC(),
+		NetworkRx:     netRx,
+		NetworkTx:     netTx,
+		DiskRead:      diskRead,
+		DiskWrite:     diskWrite,
+		PidCount:      int64(s.PidsStats.Current),
+		Timestamp:     time.Now().UTC(),
 	}
 }

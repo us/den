@@ -239,4 +239,3 @@ func colorStatus(status string) string {
 		return status
 	}
 }
-

@@ -11,15 +11,15 @@ import (
 
 // WarmPool pre-creates containers so sandbox creation is near-instant.
 type WarmPool struct {
-	runtime  runtime.Runtime
-	image    string
-	config   runtime.SandboxConfig
-	pool     chan string // buffered channel of ready container IDs
-	size     int
-	mu       sync.Mutex
-	logger   *slog.Logger
-	stopCh   chan struct{}
-	stopped  bool
+	runtime runtime.Runtime
+	image   string
+	config  runtime.SandboxConfig
+	pool    chan string // buffered channel of ready container IDs
+	size    int
+	mu      sync.Mutex
+	logger  *slog.Logger
+	stopCh  chan struct{}
+	stopped bool
 }
 
 // NewWarmPool creates a warm pool that maintains `size` pre-created containers.

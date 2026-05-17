@@ -62,20 +62,20 @@ type TmpfsDefault struct {
 
 // SandboxConfig holds default sandbox settings.
 type SandboxConfig struct {
-	DefaultImage       string        `koanf:"default_image"`
-	DefaultTimeout     time.Duration `koanf:"default_timeout"`
-	MaxSandboxes       int           `koanf:"max_sandboxes"`
-	DefaultCPU         int64         `koanf:"default_cpu"`     // NanoCPUs
-	DefaultMemory      int64         `koanf:"default_memory"`  // bytes
-	DefaultPidLimit    int64         `koanf:"default_pid_limit"`
-	WarmPoolSize       int           `koanf:"warm_pool_size"`
-	AllowVolumes       bool          `koanf:"allow_volumes"`
-	AllowSharedVolumes bool          `koanf:"allow_shared_volumes"`
-	AllowS3            bool          `koanf:"allow_s3"`
-	AllowS3FUSE        bool          `koanf:"allow_s3_fuse"`
-	AllowHostBinds     bool          `koanf:"allow_host_binds"`
-	MaxVolumesPerSandbox int         `koanf:"max_volumes_per_sandbox"`
-	DefaultTmpfs       []TmpfsDefault `koanf:"default_tmpfs"`
+	DefaultImage         string         `koanf:"default_image"`
+	DefaultTimeout       time.Duration  `koanf:"default_timeout"`
+	MaxSandboxes         int            `koanf:"max_sandboxes"`
+	DefaultCPU           int64          `koanf:"default_cpu"`    // NanoCPUs
+	DefaultMemory        int64          `koanf:"default_memory"` // bytes
+	DefaultPidLimit      int64          `koanf:"default_pid_limit"`
+	WarmPoolSize         int            `koanf:"warm_pool_size"`
+	AllowVolumes         bool           `koanf:"allow_volumes"`
+	AllowSharedVolumes   bool           `koanf:"allow_shared_volumes"`
+	AllowS3              bool           `koanf:"allow_s3"`
+	AllowS3FUSE          bool           `koanf:"allow_s3_fuse"`
+	AllowHostBinds       bool           `koanf:"allow_host_binds"`
+	MaxVolumesPerSandbox int            `koanf:"max_volumes_per_sandbox"`
+	DefaultTmpfs         []TmpfsDefault `koanf:"default_tmpfs"`
 }
 
 // S3Config holds server-wide S3 defaults.
@@ -108,7 +108,7 @@ type AuthConfig struct {
 
 // LogConfig holds logging settings.
 type LogConfig struct {
-	Level  string `koanf:"level"` // "debug", "info", "warn", "error"
+	Level  string `koanf:"level"`  // "debug", "info", "warn", "error"
 	Format string `koanf:"format"` // "text", "json"
 }
 
@@ -130,8 +130,8 @@ func DefaultConfig() *Config {
 			DefaultImage:         "den/default:latest",
 			DefaultTimeout:       30 * time.Minute,
 			MaxSandboxes:         100,
-			DefaultCPU:           0,   // 0 = no limit, shared across all containers
-			DefaultMemory:        0,   // 0 = no limit, all containers share host RAM
+			DefaultCPU:           0, // 0 = no limit, shared across all containers
+			DefaultMemory:        0, // 0 = no limit, all containers share host RAM
 			DefaultPidLimit:      256,
 			WarmPoolSize:         0,
 			AllowVolumes:         true,

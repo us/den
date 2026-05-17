@@ -24,22 +24,22 @@ func NewSandboxHandler(eng *engine.Engine, logger *slog.Logger) *SandboxHandler 
 }
 
 type createSandboxRequest struct {
-	Image    string                `json:"image"`
-	Env      map[string]string     `json:"env,omitempty"`
-	WorkDir  string                `json:"workdir,omitempty"`
-	Timeout  int                   `json:"timeout,omitempty"` // seconds
-	CPU      int64                 `json:"cpu,omitempty"`
-	Memory   int64                 `json:"memory,omitempty"`
-	Ports    []runtime.PortMapping `json:"ports,omitempty"`
-	Storage  *runtime.StorageConfig `json:"storage,omitempty"`
+	Image   string                 `json:"image"`
+	Env     map[string]string      `json:"env,omitempty"`
+	WorkDir string                 `json:"workdir,omitempty"`
+	Timeout int                    `json:"timeout,omitempty"` // seconds
+	CPU     int64                  `json:"cpu,omitempty"`
+	Memory  int64                  `json:"memory,omitempty"`
+	Ports   []runtime.PortMapping  `json:"ports,omitempty"`
+	Storage *runtime.StorageConfig `json:"storage,omitempty"`
 }
 
 type sandboxResponse struct {
-	ID        string               `json:"id"`
-	Image     string               `json:"image"`
+	ID        string                `json:"id"`
+	Image     string                `json:"image"`
 	Status    runtime.SandboxStatus `json:"status"`
-	CreatedAt time.Time            `json:"created_at"`
-	ExpiresAt time.Time            `json:"expires_at,omitempty"`
+	CreatedAt time.Time             `json:"created_at"`
+	ExpiresAt time.Time             `json:"expires_at,omitempty"`
 	Ports     []runtime.PortMapping `json:"ports,omitempty"`
 }
 

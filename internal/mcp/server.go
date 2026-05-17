@@ -29,10 +29,10 @@ type JSONRPCRequest struct {
 
 // JSONRPCResponse represents an outgoing JSON-RPC 2.0 response.
 type JSONRPCResponse struct {
-	JSONRPC string      `json:"jsonrpc"`
+	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
-	Result  any         `json:"result,omitempty"`
-	Error   *RPCError   `json:"error,omitempty"`
+	Result  any             `json:"result,omitempty"`
+	Error   *RPCError       `json:"error,omitempty"`
 }
 
 // JSONRPCNotification represents an outgoing JSON-RPC 2.0 notification (no id).

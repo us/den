@@ -33,7 +33,7 @@ type VolumeMount struct {
 // TmpfsMount defines a tmpfs filesystem to mount inside a sandbox.
 type TmpfsMount struct {
 	Path    string `json:"path"`
-	Size    string `json:"size"`             // "256m", "1g"
+	Size    string `json:"size"`              // "256m", "1g"
 	Options string `json:"options,omitempty"` // "rw,noexec,nosuid"
 }
 
@@ -151,13 +151,13 @@ type SnapshotInfo struct {
 // SandboxStats holds resource usage statistics for a sandbox.
 type SandboxStats struct {
 	CPUPercent    float64   `json:"cpu_percent"`
-	MemoryUsage   int64     `json:"memory_usage"`   // bytes
-	MemoryLimit   int64     `json:"memory_limit"`   // bytes
+	MemoryUsage   int64     `json:"memory_usage"` // bytes
+	MemoryLimit   int64     `json:"memory_limit"` // bytes
 	MemoryPercent float64   `json:"memory_percent"`
-	NetworkRx     int64     `json:"network_rx"`     // bytes
-	NetworkTx     int64     `json:"network_tx"`     // bytes
-	DiskRead      int64     `json:"disk_read"`      // bytes
-	DiskWrite     int64     `json:"disk_write"`     // bytes
+	NetworkRx     int64     `json:"network_rx"` // bytes
+	NetworkTx     int64     `json:"network_tx"` // bytes
+	DiskRead      int64     `json:"disk_read"`  // bytes
+	DiskWrite     int64     `json:"disk_write"` // bytes
 	PidCount      int64     `json:"pid_count"`
 	Timestamp     time.Time `json:"timestamp"`
 }

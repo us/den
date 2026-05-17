@@ -75,12 +75,12 @@ func (r *DockerRuntime) Exec(ctx context.Context, id string, opts runtime.ExecOp
 
 // dockerExecStream implements runtime.ExecStream.
 type dockerExecStream struct {
-	ch      chan runtime.ExecStreamMessage
-	done    chan struct{}
-	closer  io.Closer
-	cancel  context.CancelFunc
-	once    sync.Once
-	pipes   []io.Closer // pipe readers to close on Close()
+	ch     chan runtime.ExecStreamMessage
+	done   chan struct{}
+	closer io.Closer
+	cancel context.CancelFunc
+	once   sync.Once
+	pipes  []io.Closer // pipe readers to close on Close()
 }
 
 func (s *dockerExecStream) Recv() (runtime.ExecStreamMessage, error) {

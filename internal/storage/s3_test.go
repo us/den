@@ -3,10 +3,10 @@ package storage
 import (
 	"testing"
 
-	"github.com/us/den/internal/config"
-	"github.com/us/den/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/us/den/internal/config"
+	"github.com/us/den/internal/runtime"
 )
 
 func TestResolveS3Credentials_PerSandboxOverride(t *testing.T) {

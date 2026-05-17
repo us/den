@@ -10,12 +10,12 @@ import (
 
 // Sandbox represents a managed sandbox instance.
 type Sandbox struct {
-	ID        string               `json:"id"`
-	Image     string               `json:"image"`
+	ID        string `json:"id"`
+	Image     string `json:"image"`
 	status    runtime.SandboxStatus
 	Config    runtime.SandboxConfig `json:"-"`
-	CreatedAt time.Time            `json:"created_at"`
-	ExpiresAt time.Time            `json:"expires_at,omitempty"`
+	CreatedAt time.Time             `json:"created_at"`
+	ExpiresAt time.Time             `json:"expires_at,omitempty"`
 	Ports     []runtime.PortMapping `json:"ports,omitempty"`
 	mu        sync.RWMutex
 }
@@ -45,11 +45,11 @@ func (s *Sandbox) GetStatus() runtime.SandboxStatus {
 // MarshalJSON implements custom JSON marshaling to include the status field.
 func (s *Sandbox) MarshalJSON() ([]byte, error) {
 	type Alias struct {
-		ID        string               `json:"id"`
-		Image     string               `json:"image"`
+		ID        string                `json:"id"`
+		Image     string                `json:"image"`
 		Status    runtime.SandboxStatus `json:"status"`
-		CreatedAt time.Time            `json:"created_at"`
-		ExpiresAt time.Time            `json:"expires_at,omitempty"`
+		CreatedAt time.Time             `json:"created_at"`
+		ExpiresAt time.Time             `json:"expires_at,omitempty"`
 		Ports     []runtime.PortMapping `json:"ports,omitempty"`
 	}
 	return json.Marshal(&Alias{

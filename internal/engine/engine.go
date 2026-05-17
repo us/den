@@ -21,10 +21,10 @@ import (
 )
 
 var (
-	ErrNotFound         = errors.New("sandbox not found")
-	ErrNotRunning       = errors.New("sandbox is not running")
-	ErrLimitReached     = errors.New("maximum sandbox limit reached")
-	ErrPressureTooHigh  = errors.New("host under critical memory pressure")
+	ErrNotFound        = errors.New("sandbox not found")
+	ErrNotRunning      = errors.New("sandbox is not running")
+	ErrLimitReached    = errors.New("maximum sandbox limit reached")
+	ErrPressureTooHigh = errors.New("host under critical memory pressure")
 )
 
 // Engine orchestrates sandbox lifecycle.
@@ -38,7 +38,7 @@ type Engine struct {
 	mu              sync.Mutex
 	count           int
 	logger          *slog.Logger
-	stopCh      chan struct{}
+	stopCh          chan struct{}
 	shutdownOnce    sync.Once
 	pressureMonitor *PressureMonitor
 	pressureCh      chan PressureEvent
@@ -53,7 +53,7 @@ func NewEngine(rt runtime.Runtime, st store.Store, cfg config.SandboxConfig, s3C
 		s3Config:       s3Cfg,
 		resourceConfig: resCfg,
 		logger:         logger,
-		stopCh:     make(chan struct{}),
+		stopCh:         make(chan struct{}),
 		pressureCh:     make(chan PressureEvent, 16),
 	}
 
