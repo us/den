@@ -20,7 +20,7 @@ func NewResourceHandler(eng *denruntime.Engine, logger *slog.Logger) *ResourceHa
 }
 
 // Status handles GET /api/v1/resources.
-func (h *ResourceHandler) Status(w http.ResponseWriter, r *http.Request) {
+func (h *ResourceHandler) Status(w http.ResponseWriter, _ *http.Request) {
 	event := h.engine.CurrentPressure()
 	total, running := h.engine.SandboxCount()
 	thresholds := h.engine.PressureThresholds()

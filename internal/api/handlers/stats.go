@@ -39,7 +39,7 @@ func (h *StatsHandler) SandboxStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // SystemStats handles GET /api/v1/stats.
-func (h *StatsHandler) SystemStats(w http.ResponseWriter, r *http.Request) {
+func (h *StatsHandler) SystemStats(w http.ResponseWriter, _ *http.Request) {
 	sandboxes := h.engine.ListSandboxes()
 
 	running := 0

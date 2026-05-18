@@ -31,7 +31,7 @@ func SetVersion(v, c, b string) {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
@@ -66,7 +66,7 @@ func HealthHandler(rt runtime.Runtime) http.HandlerFunc {
 }
 
 // Version returns server version info.
-func Version(w http.ResponseWriter, r *http.Request) {
+func Version(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":    version,
 		"commit":     commit,

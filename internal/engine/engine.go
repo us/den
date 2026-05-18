@@ -287,7 +287,7 @@ func (e *Engine) CreateSandbox(ctx context.Context, cfg runtime.SandboxConfig) (
 
 	// Start container
 	if err := e.runtime.Start(ctx, id); err != nil {
-		e.runtime.Remove(ctx, id)
+		_ = e.runtime.Remove(ctx, id)
 		e.decrementCount()
 		return nil, fmt.Errorf("starting sandbox: %w", err)
 	}
@@ -367,7 +367,7 @@ func (e *Engine) DestroySandbox(ctx context.Context, id string) error {
 	}
 
 	// Stop (ignore error if already stopped)
-	e.runtime.Stop(ctx, id, 1*time.Second)
+	_ = e.runtime.Stop(ctx, id, 1*time.Second)
 
 	// Remove
 	if err := e.runtime.Remove(ctx, id); err != nil {
@@ -385,21 +385,23 @@ func (e *Engine) DestroySandbox(ctx context.Context, id string) error {
 	return nil
 }
 
-// getRunning returns the sandbox if it exists and is running.
-func (e *Engine) getRunning(id string) (*Sandbox, error) {
+// requireRunning returns nil if the sandbox exists and is running, or the
+// reason it is not (not-found / not-running). Callers only need the gate, not
+// the sandbox value.
+func (e *Engine) requireRunning(id string) error {
 	sb, err := e.GetSandbox(id)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if sb.GetStatus() != runtime.StatusRunning {
-		return nil, ErrNotRunning
+		return ErrNotRunning
 	}
-	return sb, nil
+	return nil
 }
 
 // Exec runs a command in a sandbox.
 func (e *Engine) Exec(ctx context.Context, id string, opts runtime.ExecOpts) (*runtime.ExecResult, error) {
-	if _, err := e.getRunning(id); err != nil {
+	if err := e.requireRunning(id); err != nil {
 		return nil, err
 	}
 	return e.runtime.Exec(ctx, id, opts)
@@ -407,7 +409,7 @@ func (e *Engine) Exec(ctx context.Context, id string, opts runtime.ExecOpts) (*r
 
 // ExecStream runs a streaming command in a sandbox.
 func (e *Engine) ExecStream(ctx context.Context, id string, opts runtime.ExecOpts) (runtime.ExecStream, error) {
-	if _, err := e.getRunning(id); err != nil {
+	if err := e.requireRunning(id); err != nil {
 		return nil, err
 	}
 	return e.runtime.ExecStream(ctx, id, opts)
@@ -415,7 +417,7 @@ func (e *Engine) ExecStream(ctx context.Context, id string, opts runtime.ExecOpt
 
 // ReadFile reads a file from a sandbox.
 func (e *Engine) ReadFile(ctx context.Context, id string, path string) ([]byte, error) {
-	if _, err := e.getRunning(id); err != nil {
+	if err := e.requireRunning(id); err != nil {
 		return nil, err
 	}
 	return e.runtime.ReadFile(ctx, id, path)
@@ -423,7 +425,7 @@ func (e *Engine) ReadFile(ctx context.Context, id string, path string) ([]byte, 
 
 // WriteFile writes a file to a sandbox.
 func (e *Engine) WriteFile(ctx context.Context, id string, path string, content []byte) error {
-	if _, err := e.getRunning(id); err != nil {
+	if err := e.requireRunning(id); err != nil {
 		return err
 	}
 	return e.runtime.WriteFile(ctx, id, path, content)
@@ -431,7 +433,7 @@ func (e *Engine) WriteFile(ctx context.Context, id string, path string, content 
 
 // ListDir lists a directory in a sandbox.
 func (e *Engine) ListDir(ctx context.Context, id string, path string) ([]runtime.FileInfo, error) {
-	if _, err := e.getRunning(id); err != nil {
+	if err := e.requireRunning(id); err != nil {
 		return nil, err
 	}
 	return e.runtime.ListDir(ctx, id, path)
@@ -439,7 +441,7 @@ func (e *Engine) ListDir(ctx context.Context, id string, path string) ([]runtime
 
 // MkDir creates a directory in a sandbox.
 func (e *Engine) MkDir(ctx context.Context, id string, path string) error {
-	if _, err := e.getRunning(id); err != nil {
+	if err := e.requireRunning(id); err != nil {
 		return err
 	}
 	return e.runtime.MkDir(ctx, id, path)
@@ -447,7 +449,7 @@ func (e *Engine) MkDir(ctx context.Context, id string, path string) error {
 
 // RemoveFile removes a file from a sandbox.
 func (e *Engine) RemoveFile(ctx context.Context, id string, path string) error {
-	if _, err := e.getRunning(id); err != nil {
+	if err := e.requireRunning(id); err != nil {
 		return err
 	}
 	return e.runtime.RemoveFile(ctx, id, path)
@@ -602,7 +604,7 @@ func (e *Engine) reaper() {
 
 func (e *Engine) reapExpired() {
 	ctx := context.Background()
-	e.sandboxes.Range(func(key, value any) bool {
+	e.sandboxes.Range(func(_, value any) bool {
 		sandbox := value.(*Sandbox)
 		if sandbox.IsExpired() {
 			e.logger.Info("reaping expired sandbox", "id", sandbox.ID)
@@ -711,7 +713,7 @@ func (e *Engine) s3HookInit(ctx context.Context, id string, s3Cfg *runtime.S3Syn
 
 		// Skip objects that exceed size limit based on ContentLength header
 		if size > maxS3ObjectSize {
-			body.Close()
+			_ = body.Close()
 			e.logger.Warn("s3 hook: object too large, skipping", "key", key, "size", size)
 			skipped++
 			continue
@@ -721,7 +723,7 @@ func (e *Engine) s3HookInit(ctx context.Context, id string, s3Cfg *runtime.S3Syn
 		buf.Reset()
 		limited := io.LimitReader(body, maxS3ObjectSize+1)
 		n, err := buf.ReadFrom(limited)
-		body.Close()
+		_ = body.Close()
 		if err != nil {
 			skipped++
 			continue

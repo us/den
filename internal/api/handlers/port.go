@@ -39,11 +39,11 @@ func (h *PortHandler) List(w http.ResponseWriter, r *http.Request) {
 const portsUnsupportedMsg = "dynamic port forwarding is not supported: port mappings are fixed at sandbox creation and only published in network_mode=bridge (Docker-native, no runtime proxy)"
 
 // Add handles POST /api/v1/sandboxes/{id}/ports.
-func (h *PortHandler) Add(w http.ResponseWriter, r *http.Request) {
+func (h *PortHandler) Add(w http.ResponseWriter, _ *http.Request) {
 	writeError(w, http.StatusNotImplemented, portsUnsupportedMsg)
 }
 
 // Remove handles DELETE /api/v1/sandboxes/{id}/ports/{port}.
-func (h *PortHandler) Remove(w http.ResponseWriter, r *http.Request) {
+func (h *PortHandler) Remove(w http.ResponseWriter, _ *http.Request) {
 	writeError(w, http.StatusNotImplemented, portsUnsupportedMsg)
 }

@@ -66,8 +66,8 @@ func (wp *WarmPool) Return(ctx context.Context, id string) {
 		return
 	}
 	// Don't return, just remove it (it may have been modified)
-	wp.runtime.Stop(ctx, id, 1*time.Second)
-	wp.runtime.Remove(ctx, id)
+	_ = wp.runtime.Stop(ctx, id, 1*time.Second)
+	_ = wp.runtime.Remove(ctx, id)
 }
 
 // Size returns the current number of warm containers.
@@ -92,8 +92,8 @@ func (wp *WarmPool) Stop(ctx context.Context) {
 	for {
 		select {
 		case id := <-wp.pool:
-			wp.runtime.Stop(ctx, id, 1*time.Second)
-			wp.runtime.Remove(ctx, id)
+			_ = wp.runtime.Stop(ctx, id, 1*time.Second)
+			_ = wp.runtime.Remove(ctx, id)
 		default:
 			return
 		}
@@ -137,7 +137,7 @@ func (wp *WarmPool) addOne() {
 	}
 
 	if err := wp.runtime.Start(ctx, id); err != nil {
-		wp.runtime.Remove(ctx, id)
+		_ = wp.runtime.Remove(ctx, id)
 		wp.logger.Warn("warm pool: failed to start container", "error", err)
 		return
 	}
@@ -147,7 +147,7 @@ func (wp *WarmPool) addOne() {
 		// Added to pool
 	default:
 		// Pool is full, remove the extra container
-		wp.runtime.Stop(ctx, id, 1*time.Second)
-		wp.runtime.Remove(ctx, id)
+		_ = wp.runtime.Stop(ctx, id, 1*time.Second)
+		_ = wp.runtime.Remove(ctx, id)
 	}
 }

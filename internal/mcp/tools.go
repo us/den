@@ -501,7 +501,7 @@ func toolListSandboxes(s *Server) ToolDef {
 			"type":       "object",
 			"properties": map[string]any{},
 		},
-		Handler: func(ctx context.Context, _ json.RawMessage) (string, error) {
+		Handler: func(_ context.Context, _ json.RawMessage) (string, error) {
 			sandboxes := s.engine.ListSandboxes()
 
 			list := make([]map[string]any, 0, len(sandboxes))

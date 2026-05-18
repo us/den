@@ -66,7 +66,10 @@ func (h *FileHandler) ReadFile(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.WriteHeader(http.StatusOK)
-	w.Write(content)
+	// #nosec G705 -- raw sandbox file bytes served as an octet-stream body,
+	// never interpreted as HTML by the browser; this is a file-read API, not
+	// a rendered page. Taint here is by design (the caller asked for the file).
+	_, _ = w.Write(content)
 }
 
 // WriteFile handles PUT /api/v1/sandboxes/{id}/files?path=/foo.
@@ -183,6 +186,8 @@ func (h *FileHandler) RemoveFile(w http.ResponseWriter, r *http.Request) {
 func (h *FileHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
+	// #nosec G120 -- bounded to 100MB by the 100<<20 limit argument; G120's
+	// "unbounded" heuristic does not recognize the in-call cap.
 	if err := r.ParseMultipartForm(100 << 20); err != nil { // 100MB
 		writeError(w, http.StatusBadRequest, "failed to parse multipart form")
 		return
@@ -203,7 +208,7 @@ func (h *FileHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "file field is required")
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	const maxUploadSize = 100 * 1024 * 1024 // 100MB
 	content, err := io.ReadAll(io.LimitReader(file, maxUploadSize+1))
@@ -257,5 +262,7 @@ func (h *FileHandler) Download(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
 	w.WriteHeader(http.StatusOK)
-	w.Write(content)
+	// #nosec G705 -- octet-stream attachment download of raw sandbox bytes;
+	// Content-Disposition: attachment forces a download, never HTML render.
+	_, _ = w.Write(content)
 }

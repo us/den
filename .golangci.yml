@@ -1,6 +1,42 @@
 version: "2"
 
+# Hardened set. `standard` already enables errcheck, govet, ineffassign,
+# staticcheck, unused; errcheck is NO LONGER disabled (the prior config
+# silenced unchecked errors — the single highest-value bug class for a
+# security-sensitive runtime). The added linters target the failure modes
+# this codebase actually has: unclosed HTTP bodies (bodyclose), missing
+# request context (noctx), SSRF/exec/path hardening (gosec), and dead
+# parameters/results (unparam).
 linters:
   default: standard
-  disable:
-    - errcheck
+  enable:
+    - bodyclose
+    - gocritic
+    - gosec
+    - misspell
+    - noctx
+    - revive
+    - unparam
+  exclusions:
+    rules:
+      # Test files legitimately ignore errors on cleanup, use t.TempDir
+      # paths, and craft adversarial inputs gosec would flag as false
+      # positives. Production code gets the full set.
+      - path: _test\.go
+        linters:
+          - bodyclose
+          - errcheck
+          - gosec
+          - noctx
+          - unparam
+      # revive's doc-comment / package-comment / type-stutter rules are a
+      # pre-existing documentation backlog across the ~9k-LOC codebase that
+      # predates the network feature. Re-enabling them here would force a
+      # broad, unrelated doc/rename churn (incl. a cross-package exported-type
+      # rename) into a security-focused branch — explicitly the "split the
+      # linter rollout" path sanctioned in the plan, NOT a silent drop. The
+      # high-signal revive rules (unused-parameter, etc.) stay enforced.
+      # Tracked as separate documentation work.
+      - linters:
+          - revive
+        text: "should have comment|package-comments|^exported: type name will be used"

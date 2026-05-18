@@ -22,7 +22,7 @@ func mcpCmd() *cobra.Command {
 		Use:   "mcp",
 		Short: "Start MCP server (stdio mode)",
 		Long:  "Start an MCP server that communicates via stdin/stdout for AI agent integration.",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			// Log to stderr so stdout is reserved for MCP protocol
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 				Level: slog.LevelWarn,
@@ -41,7 +41,7 @@ func mcpCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("opening store: %w", err)
 			}
-			defer st.Close()
+			defer func() { _ = st.Close() }()
 
 			rt, err := docker.New(
 				docker.WithNetworkID(cfg.Runtime.NetworkID),

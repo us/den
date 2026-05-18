@@ -35,7 +35,7 @@ func createCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a new sandbox",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			c := getClient(cmd)
 
 			image, _ := cmd.Flags().GetString("image")
@@ -72,7 +72,7 @@ func lsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
 		Short: "List sandboxes",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			c := getClient(cmd)
 
 			sandboxes, err := c.ListSandboxes(context.Background())
@@ -81,12 +81,12 @@ func lsCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tIMAGE\tSTATUS\tAGE")
+			_, _ = fmt.Fprintln(w, "ID\tIMAGE\tSTATUS\tAGE")
 			for _, sb := range sandboxes {
 				age := time.Since(sb.CreatedAt).Truncate(time.Second)
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", sb.ID, sb.Image, colorStatus(sb.Status), age)
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", sb.ID, sb.Image, colorStatus(sb.Status), age)
 			}
-			w.Flush()
+			_ = w.Flush()
 			return nil
 		},
 	}
@@ -202,7 +202,7 @@ func statsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stats",
 		Short: "Show system stats",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			c := getClient(cmd)
 
 			sandboxes, err := c.ListSandboxes(context.Background())

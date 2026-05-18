@@ -58,29 +58,32 @@ func ResolveS3Credentials(sandbox *runtime.S3SyncConfig, server serverconfig.S3C
 	}
 
 	// Region
-	if sandbox != nil && sandbox.Region != "" {
+	switch {
+	case sandbox != nil && sandbox.Region != "":
 		creds.Region = sandbox.Region
-	} else if server.Region != "" {
+	case server.Region != "":
 		creds.Region = server.Region
-	} else {
+	default:
 		creds.Region = "us-east-1"
 	}
 
 	// Access key
-	if sandbox != nil && sandbox.AccessKey != "" {
+	switch {
+	case sandbox != nil && sandbox.AccessKey != "":
 		creds.AccessKey = sandbox.AccessKey
-	} else if server.AccessKey != "" {
+	case server.AccessKey != "":
 		creds.AccessKey = server.AccessKey
-	} else {
+	default:
 		return nil, fmt.Errorf("S3 access key is required")
 	}
 
 	// Secret key
-	if sandbox != nil && sandbox.SecretKey != "" {
+	switch {
+	case sandbox != nil && sandbox.SecretKey != "":
 		creds.SecretKey = sandbox.SecretKey
-	} else if server.SecretKey != "" {
+	case server.SecretKey != "":
 		creds.SecretKey = server.SecretKey
-	} else {
+	default:
 		return nil, fmt.Errorf("S3 secret key is required")
 	}
 
@@ -230,6 +233,8 @@ func (c *S3Client) ListObjects(ctx context.Context, bucket, prefix string, maxKe
 		Prefix: &prefix,
 	}
 	if maxKeys > 0 {
+		// #nosec G115 -- guarded maxKeys>0 and min() caps at 1000, so the
+		// value is always in [1,1000] and fits int32 with no overflow.
 		mk := int32(min(maxKeys, 1000))
 		input.MaxKeys = &mk
 	}

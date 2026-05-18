@@ -63,7 +63,7 @@ func TestClient_CreateSandbox_PortsRoundTrip(t *testing.T) {
 // A sandbox with no published ports must decode to an empty slice (the server
 // omits the key entirely); the SDK must not synthesize a phantom mapping.
 func TestClient_CreateSandbox_NoPorts(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"id":"sb-2","image":"test:latest","status":"running","created_at":"2026-05-18T00:00:00Z"}`))

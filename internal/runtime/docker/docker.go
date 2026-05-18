@@ -630,7 +630,7 @@ func (r *DockerRuntime) Info(ctx context.Context, id string) (*runtime.SandboxIn
 	for containerPort, bindings := range inspect.NetworkSettings.Ports {
 		for _, b := range bindings {
 			hp := 0
-			fmt.Sscanf(b.HostPort, "%d", &hp)
+			_, _ = fmt.Sscanf(b.HostPort, "%d", &hp)
 			ports = append(ports, runtime.PortMapping{
 				SandboxPort: containerPort.Int(),
 				HostPort:    hp,
@@ -697,7 +697,7 @@ func (r *DockerRuntime) Stats(ctx context.Context, id string) (*runtime.SandboxS
 	if err != nil {
 		return nil, fmt.Errorf("getting stats for %s: %w", id, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var statsResp container.StatsResponse
 	if err := decodeStats(resp.Body, &statsResp); err != nil {

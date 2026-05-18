@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -68,8 +69,10 @@ func validateEndpoint(endpoint string) error {
 		}
 	}
 
-	// Resolve hostname and check all IPs
-	addrs, err := net.LookupHost(host)
+	// Resolve hostname and check all IPs. Phase 3 replaces this whole
+	// function with internal/security/ssrf; until then use the
+	// context-aware resolver so a hung DNS server cannot wedge the handler.
+	addrs, err := net.DefaultResolver.LookupHost(context.Background(), host)
 	if err != nil {
 		return fmt.Errorf("cannot resolve endpoint host: %w", err)
 	}
@@ -167,7 +170,7 @@ func (h *S3Handler) Import(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to download from S3")
 		return
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	// Reject early if S3 reported size exceeds limit
 	if size > maxS3ImportSize {

@@ -73,7 +73,7 @@ func (r *DockerRuntime) Restore(ctx context.Context, snapshotID string) (string,
 	}
 
 	if err := r.Start(ctx, newID); err != nil {
-		r.Remove(ctx, newID)
+		_ = r.Remove(ctx, newID)
 		return "", fmt.Errorf("starting restored container: %w", err)
 	}
 

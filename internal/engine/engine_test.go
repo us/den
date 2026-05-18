@@ -138,7 +138,7 @@ func TestEngine_Exec(t *testing.T) {
 	eng, mock := newTestEngine(t)
 	ctx := context.Background()
 
-	mock.ExecFn = func(ctx context.Context, id string, opts runtime.ExecOpts) (*runtime.ExecResult, error) {
+	mock.ExecFn = func(_ context.Context, _ string, _ runtime.ExecOpts) (*runtime.ExecResult, error) {
 		return &runtime.ExecResult{ExitCode: 0, Stdout: "hello\n"}, nil
 	}
 

@@ -3,12 +3,24 @@ package docker
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
 
 	"github.com/us/den/internal/runtime"
 )
+
+// u64ToI64 converts a Docker-reported unsigned counter to a signed int64,
+// saturating at math.MaxInt64 instead of silently wrapping to a negative
+// value. A hostile or buggy daemon can return absurd uint64 stats; clamping
+// keeps the reported figure monotonic-looking rather than corrupt.
+func u64ToI64(v uint64) int64 {
+	if v > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(v)
+}
 
 func decodeStats(r io.Reader, stats *container.StatsResponse) error {
 	return json.NewDecoder(r).Decode(stats)
@@ -29,30 +41,30 @@ func mapStats(s *container.StatsResponse) *runtime.SandboxStats {
 
 	var netRx, netTx int64
 	for _, n := range s.Networks {
-		netRx += int64(n.RxBytes)
-		netTx += int64(n.TxBytes)
+		netRx += u64ToI64(n.RxBytes)
+		netTx += u64ToI64(n.TxBytes)
 	}
 
 	var diskRead, diskWrite int64
 	for _, bio := range s.BlkioStats.IoServiceBytesRecursive {
 		switch bio.Op {
 		case "read", "Read":
-			diskRead += int64(bio.Value)
+			diskRead += u64ToI64(bio.Value)
 		case "write", "Write":
-			diskWrite += int64(bio.Value)
+			diskWrite += u64ToI64(bio.Value)
 		}
 	}
 
 	return &runtime.SandboxStats{
 		CPUPercent:    cpuPercent,
-		MemoryUsage:   int64(s.MemoryStats.Usage),
-		MemoryLimit:   int64(s.MemoryStats.Limit),
+		MemoryUsage:   u64ToI64(s.MemoryStats.Usage),
+		MemoryLimit:   u64ToI64(s.MemoryStats.Limit),
 		MemoryPercent: memPercent,
 		NetworkRx:     netRx,
 		NetworkTx:     netTx,
 		DiskRead:      diskRead,
 		DiskWrite:     diskWrite,
-		PidCount:      int64(s.PidsStats.Current),
+		PidCount:      u64ToI64(s.PidsStats.Current),
 		Timestamp:     time.Now().UTC(),
 	}
 }

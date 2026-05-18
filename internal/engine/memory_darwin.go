@@ -52,7 +52,9 @@ func parseVMStat() (pageSize, freePages, inactivePages uint64, err error) {
 		return 0, 0, 0, err
 	}
 
-	// Use system page size as default
+	// Use system page size as default.
+	// #nosec G115 -- Getpagesize() returns a small positive constant
+	// (4096/16384 on darwin); it can never overflow uint64.
 	pageSize = uint64(unix.Getpagesize())
 	lines := strings.Split(string(out), "\n")
 	for _, line := range lines {

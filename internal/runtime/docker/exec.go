@@ -50,8 +50,8 @@ func (r *DockerRuntime) Exec(ctx context.Context, id string, opts runtime.ExecOp
 
 	if opts.Stdin != nil {
 		go func() {
-			io.Copy(attachResp.Conn, opts.Stdin)
-			attachResp.CloseWrite()
+			_, _ = io.Copy(attachResp.Conn, opts.Stdin)
+			_ = attachResp.CloseWrite()
 		}()
 	}
 
@@ -99,7 +99,7 @@ func (s *dockerExecStream) Close() error {
 	s.once.Do(func() {
 		close(s.done)
 		for _, p := range s.pipes {
-			p.Close()
+			_ = p.Close()
 		}
 		if s.cancel != nil {
 			s.cancel()
@@ -166,9 +166,9 @@ func (r *DockerRuntime) ExecStream(ctx context.Context, id string, opts runtime.
 		defer close(stream.ch)
 
 		go func() {
-			stdcopy.StdCopy(stdoutW, stderrW, attachResp.Reader)
-			stdoutW.Close()
-			stderrW.Close()
+			_, _ = stdcopy.StdCopy(stdoutW, stderrW, attachResp.Reader)
+			_ = stdoutW.Close()
+			_ = stderrW.Close()
 		}()
 
 		var wg sync.WaitGroup
@@ -212,7 +212,7 @@ func (r *DockerRuntime) ExecStream(ctx context.Context, id string, opts runtime.
 
 		wg.Wait()
 
-		inspectResp, err := r.cli.ContainerExecInspect(context.Background(), execResp.ID)
+		inspectResp, err := r.cli.ContainerExecInspect(ctx, execResp.ID)
 		if err == nil {
 			stream.ch <- runtime.ExecStreamMessage{
 				Type: "exit",

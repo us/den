@@ -34,7 +34,7 @@ func NewBoltStore(path string) (*BoltStore, error) {
 		}
 		return nil
 	}); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("creating buckets: %w", err)
 	}
 
@@ -72,7 +72,7 @@ func (s *BoltStore) ListSandboxes() ([]*SandboxRecord, error) {
 	var records []*SandboxRecord
 	err := s.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(sandboxBucket)
-		return b.ForEach(func(k, v []byte) error {
+		return b.ForEach(func(_, v []byte) error {
 			var record SandboxRecord
 			if err := json.Unmarshal(v, &record); err != nil {
 				return err
@@ -125,7 +125,7 @@ func (s *BoltStore) ListSnapshots(sandboxID string) ([]*SnapshotRecord, error) {
 	var records []*SnapshotRecord
 	err := s.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(snapshotBucket)
-		return b.ForEach(func(k, v []byte) error {
+		return b.ForEach(func(_, v []byte) error {
 			var record SnapshotRecord
 			if err := json.Unmarshal(v, &record); err != nil {
 				return err

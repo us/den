@@ -19,7 +19,7 @@ func TestValidatePath_Valid(t *testing.T) {
 	}
 }
 
-func TestValidatePath_Traversal(t *testing.T) {
+func TestValidatePath_Traversal(_ *testing.T) {
 	traversal := []string{
 		"/../etc/passwd",
 		"/tmp/../../etc/shadow",

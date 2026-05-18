@@ -64,17 +64,17 @@ func (h *ExecHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("websocket upgrade failed", "error", err)
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Read the exec request from first message
 	var req wsExecRequest
 	if err := conn.ReadJSON(&req); err != nil {
-		conn.WriteJSON(wsExecMessage{Type: "error", Data: "invalid request"})
+		_ = conn.WriteJSON(wsExecMessage{Type: "error", Data: "invalid request"})
 		return
 	}
 
 	if len(req.Cmd) == 0 {
-		conn.WriteJSON(wsExecMessage{Type: "error", Data: "cmd is required"})
+		_ = conn.WriteJSON(wsExecMessage{Type: "error", Data: "cmd is required"})
 		return
 	}
 
@@ -95,10 +95,10 @@ func (h *ExecHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	stream, err := h.engine.ExecStream(r.Context(), id, opts)
 	if err != nil {
 		h.logger.Error("exec stream failed", "sandbox", id, "error", err)
-		conn.WriteJSON(wsExecMessage{Type: "error", Data: "failed to start command"})
+		_ = conn.WriteJSON(wsExecMessage{Type: "error", Data: "failed to start command"})
 		return
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	for {
 		msg, err := stream.Recv()
@@ -107,7 +107,7 @@ func (h *ExecHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			h.logger.Error("exec stream recv failed", "sandbox", id, "error", err)
-			conn.WriteJSON(wsExecMessage{Type: "error", Data: "stream error"})
+			_ = conn.WriteJSON(wsExecMessage{Type: "error", Data: "stream error"})
 			break
 		}
 

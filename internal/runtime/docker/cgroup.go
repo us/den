@@ -147,11 +147,13 @@ func (cm *CgroupManager) UpdateOOMScore(ctx context.Context, containerID string,
 var writeFile = writeFileImpl
 
 func writeFileImpl(path, content string) error {
+	// #nosec G304 -- callers pass fixed in-process cgroup/proc paths
+	// (e.g. /sys/fs/cgroup/..., /proc/...), never user-supplied input.
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, err = f.WriteString(content)
 	return err
 }

@@ -125,7 +125,7 @@ func parseLsOutput(output string, basePath string) []runtime.FileInfo {
 		mode := fields[0]
 
 		var size int64
-		fmt.Sscanf(fields[4], "%d", &size)
+		_, _ = fmt.Sscanf(fields[4], "%d", &size)
 
 		files = append(files, runtime.FileInfo{
 			Name:  name,

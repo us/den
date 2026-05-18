@@ -64,7 +64,7 @@ func serveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
 		Short: "Start the den API server",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			// Setup logger
 			logLevel := slog.LevelInfo
 			logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
@@ -106,7 +106,7 @@ func serveCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("opening store: %w", err)
 			}
-			defer st.Close()
+			defer func() { _ = st.Close() }()
 
 			// Setup runtime
 			rt, err := docker.New(
@@ -186,7 +186,7 @@ func protectProcess(logger *slog.Logger) {
 		return
 	}
 	// -900, not -1000 — kernel critical processes should be protected
-	if err := os.WriteFile("/proc/self/oom_score_adj", []byte("-900"), 0644); err != nil {
+	if err := os.WriteFile("/proc/self/oom_score_adj", []byte("-900"), 0o600); err != nil {
 		logger.Warn("failed to set OOM score adjustment", "error", err)
 	} else {
 		logger.Debug("set OOM score adjustment to -900")
@@ -197,7 +197,7 @@ func versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(_ *cobra.Command, _ []string) {
 			fmt.Printf("den %s (commit: %s, built: %s)\n", version, commit, buildDate)
 		},
 	}

@@ -106,7 +106,7 @@ func (h *SandboxHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 // List handles GET /api/v1/sandboxes.
-func (h *SandboxHandler) List(w http.ResponseWriter, r *http.Request) {
+func (h *SandboxHandler) List(w http.ResponseWriter, _ *http.Request) {
 	sandboxes := h.engine.ListSandboxes()
 	resp := make([]sandboxResponse, 0, len(sandboxes))
 	for _, s := range sandboxes {

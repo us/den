@@ -10,7 +10,7 @@ build:
 	CGO_ENABLED=0 go build $(LDFLAGS) -o bin/$(BINARY) ./cmd/den
 
 test:
-	go test ./internal/... -short -v
+	go test ./cmd/den/... ./internal/... -short -v
 
 test-integration:
 	go test -tags integration ./internal/... ./tests/... -run TestIntegration -v
@@ -24,6 +24,10 @@ test-sdk:
 e2e-network:
 	./scripts/e2e-network.sh
 
+# Pinned to golangci-lint v2.12.2 (matches .github/workflows/ci.yml). Install
+# locally with the exact pin so local results match CI:
+#   curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/v2.12.2/install.sh \
+#     | sh -s -- -b $(shell go env GOPATH)/bin v2.12.2
 lint:
 	golangci-lint run ./...
 
