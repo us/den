@@ -105,8 +105,8 @@ Every sandbox container runs with:
 | PID limit | 256 (default, configurable) |
 | Memory | 512MB (default, configurable) |
 | CPU | 1 core (default, configurable) |
-| Network | Internal Docker network (`den-net`) |
-| Port binding | `127.0.0.1` only |
+| Network | Managed `den-net`: `internal` (default) / `bridge` / `none`. **Only `none` is a tenant boundary** |
+| Port binding | `127.0.0.1` only, fixed at creation, **published only in `bridge`** |
 
 ## Performance
 

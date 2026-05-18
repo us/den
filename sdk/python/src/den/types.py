@@ -13,6 +13,7 @@ class PortMapping(BaseModel):
 
     sandbox_port: int
     host_port: int
+    # Always "tcp"; Den does not support udp port publishing.
     protocol: str = "tcp"
 
 
@@ -65,6 +66,11 @@ class SandboxConfig(BaseModel):
     memory: int | None = None  # bytes
     ports: list[PortMapping] | None = None
     storage: StorageConfig | None = None
+    # Per-sandbox network override. Only "" (inherit the server default) or
+    # "none" (no network at all) are accepted; any other value -- including
+    # one equal to the server default -- is rejected with HTTP 400. A
+    # per-sandbox value may only INCREASE isolation, never decrease it.
+    network_mode: Literal["", "none"] | None = None
 
 
 class SandboxInfo(BaseModel):

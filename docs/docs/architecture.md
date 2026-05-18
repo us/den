@@ -71,7 +71,17 @@ Uses the official Docker SDK. Implements the `Runtime` interface:
 - **exec.go** — Execution via `ContainerExecCreate` + `ContainerExecAttach`
 - **fs.go** — File I/O via exec-based approach (`cat` for read, `tee` for write)
 - **snapshot.go** — Snapshots via `docker commit`
-- **network.go** — Port forwarding via Docker port bindings
+- **docker.go (`EnsureNetwork`/`Reconcile`)** — Mode-aware managed network (`internal`/`bridge`/`none`)
+
+Port mappings are applied **at container-create time** via Docker-native
+`HostConfig.PortBindings` (bound to `127.0.0.1`) and are published **only in
+`network_mode=bridge`** — they are inert in `internal` and rejected in `none`.
+There is no userspace port-forwarder and no runtime add/remove: `POST`/`DELETE
+/api/v1/sandboxes/{id}/ports` permanently return `501`. **Docker-out-of-Docker
+(DooD): when den's Docker client points at a remote or socket-proxied daemon,
+`127.0.0.1` host bindings land on the *daemon* host, not the den host — DooD
+port access is unsupported.** The legacy in-process `PortForwarder`
+(`network.go`) was removed in v9.
 
 File I/O uses exec-based approach instead of `CopyToContainer`/`CopyFromContainer` because the latter fails with read-only rootfs. Exec works through the container's mount namespace and handles tmpfs correctly.
 
@@ -144,8 +154,8 @@ JSON-RPC 2.0 over stdio. Creates its own Engine + Docker Runtime instance (does 
 | PID limit | Default 256 (prevents fork bombs) |
 | Memory limit | Default 512MB (soft throttle via `memory.high`; OOM kill only at `memory.max`) |
 | CPU limit | Default 1 core |
-| Network | Internal Docker network (`den-net`) |
-| Port binding | `127.0.0.1` only |
+| Network | Managed `den-net`: `internal` (default, no egress) / `bridge` (egress + published ports) / `none` (no interface). **Only `none` is a tenant boundary** |
+| Port binding | Docker-native, `127.0.0.1` only, fixed at creation, **published only in `bridge`** (`POST`/`DELETE /ports` → `501`) |
 | Path validation | Null byte rejection, traversal protection |
 
 ## Concurrency Model

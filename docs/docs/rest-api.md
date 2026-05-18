@@ -236,17 +236,23 @@ POST   /api/v1/snapshots/{snapshotId}/restore         → Restore → new sandbo
 DELETE /api/v1/snapshots/{snapshotId}                  → Delete snapshot (204)
 ```
 
-## Port Forwarding
+## Ports
 
 ```
-GET /api/v1/sandboxes/{id}/ports
+GET    /api/v1/sandboxes/{id}/ports        → list (200)
+POST   /api/v1/sandboxes/{id}/ports        → 501 Not Implemented
+DELETE /api/v1/sandboxes/{id}/ports/{port} → 501 Not Implemented
 ```
 
 ```json
 [{"sandbox_port": 3000, "host_port": 49152, "protocol": "tcp"}]
 ```
 
-Ports are configured at creation time. Forwarded ports bind to `127.0.0.1` only.
+Port mappings are **fixed at sandbox creation** (the `ports` field of the create
+request) and published **Docker-natively to `127.0.0.1` only, in `network_mode=bridge`
+only** — inert in `internal` (the default), rejected in `none`. There is no userspace
+forwarder and no runtime add/remove: `POST`/`DELETE /ports` permanently return `501`.
+`GET /ports` returns the list configured at creation (empty unless ports were set).
 
 ## Statistics
 

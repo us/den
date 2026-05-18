@@ -16,7 +16,9 @@ import (
 	"github.com/us/den/internal/api/handlers"
 	"github.com/us/den/internal/config"
 	"github.com/us/den/internal/engine"
+	"github.com/us/den/internal/runtime"
 	"github.com/us/den/internal/runtime/docker"
+	"github.com/us/den/internal/runtime/netpolicy"
 	"github.com/us/den/internal/store"
 )
 
@@ -35,6 +37,9 @@ func main() {
 		Use:   "den",
 		Short: "Self-hosted sandbox runtime for AI agents",
 		Long:  "Den provides secure, isolated sandbox environments for AI agents to execute code.",
+		// A guard refusal is an operator config error, not a usage error:
+		// don't bury the committed remediation message under a usage dump.
+		SilenceUsage: true,
 	}
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: den.yaml)")
@@ -106,6 +111,9 @@ func serveCmd() *cobra.Command {
 			// Setup runtime
 			rt, err := docker.New(
 				docker.WithNetworkID(cfg.Runtime.NetworkID),
+				docker.WithNetworkMode(runtime.NetworkMode(cfg.Runtime.DefaultNetworkMode)),
+				docker.WithReconcileNetwork(cfg.Runtime.ReconcileNetwork),
+				docker.WithAllowUnsafeBridge(cfg.Runtime.AllowUnsafeBridge),
 				docker.WithLogger(logger),
 			)
 			if err != nil {
@@ -114,14 +122,17 @@ func serveCmd() *cobra.Command {
 
 			ctx := context.Background()
 
-			// Verify Docker connection
-			if err := rt.Ping(ctx); err != nil {
-				return fmt.Errorf("docker not available: %w", err)
-			}
-
-			// Ensure network
-			if err := rt.EnsureNetwork(ctx); err != nil {
-				logger.Warn("failed to create network", "error", err)
+			// Ordered, fail-fast startup: Ping → guards → Reconcile →
+			// EnsureNetwork. `serve` always exposes the HTTP control plane,
+			// so the bind guard is live (httpListener=true). The guard
+			// refusal MUST abort before any network mutation.
+			if err := runStartup(ctx, startupSteps{
+				ping:      rt.Ping,
+				guard:     func(c context.Context) error { return applyNetworkGuards(c, rt, cfg, logger, true) },
+				reconcile: func(c context.Context) error { return rt.Reconcile(c, st) },
+				ensureNet: rt.EnsureNetwork,
+			}); err != nil {
+				return err
 			}
 
 			// Warn if auth is disabled
@@ -133,7 +144,9 @@ func serveCmd() *cobra.Command {
 			protectProcess(logger)
 
 			// Setup engine
-			eng := engine.NewEngine(rt, st, cfg.Sandbox, cfg.S3, cfg.Resource, logger)
+			eng := engine.NewEngine(rt, st, cfg.Sandbox, cfg.S3, cfg.Resource,
+				netpolicy.Policy{DefaultMode: runtime.NetworkMode(cfg.Runtime.DefaultNetworkMode)},
+				logger)
 
 			// Setup API server
 			srv := api.NewServer(eng, rt, cfg, logger)

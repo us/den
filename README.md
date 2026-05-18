@@ -185,7 +185,7 @@ Now Claude can create sandboxes, run code, and manage files directly.
 | **Shared Volumes** | Mount the same volume across sandboxes (RW or RO) |
 | **Configurable Tmpfs** | Per-sandbox tmpfs size and option overrides |
 | **S3 Sync** | Import/export files via hooks, on-demand API, or FUSE mount |
-| **Port Forwarding** | Expose sandbox ports to host (bound to 127.0.0.1) |
+| **Port Publishing** | Publish sandbox ports to `127.0.0.1` — fixed at creation, Docker-native, **only in `network_mode=bridge`** |
 | **Resource Limits** | CPU, memory, PID limits per sandbox |
 | **Pressure Monitoring** | Host memory pressure detection with dynamic throttling |
 | **Auto-Expiry** | Sandboxes auto-destroy after configurable timeout |
@@ -202,8 +202,9 @@ Den takes security seriously. Every sandbox runs with:
 - **Read-only root filesystem** — Only tmpfs mounts and explicit volumes are writable
 - **PID limits** — Default 256 processes per container
 - **No new privileges** — `no-new-privileges` security option
-- **Network isolation** — Containers on internal Docker network
-- **Port binding** — Forwarded ports bind to `127.0.0.1` only
+- **Network posture** — Managed Docker network in one of three modes: `internal` (default — no NAT/egress), `bridge` (egress + published ports), `none` (no interface). **`internal` does NOT contain a sandbox: it still reaches the bridge gateway, the embedded DNS resolver (`127.0.0.11`) and any host service bound to `0.0.0.0`. Only `network_mode=none` is a tenant/egress boundary.**
+- **Port binding** — Ports are published Docker-natively to `127.0.0.1` only, fixed at sandbox creation, and **only in `bridge` mode** (inert in `internal`, rejected in `none`). There is no userspace forwarder and no runtime add/remove (`POST`/`DELETE /ports` → `501`). The "Port Publishing" feature above is therefore live only in `bridge`; in the default `internal` mode it is intentionally inert.
+- **Bind guard** — When the API binds a non-loopback address (or loopback with auth disabled), startup **refuses** unless auth is enabled, the effective mode is `none`, or a co-residency `platform_override` is explicitly attested — preventing the unauthenticated control plane from being reachable from a `bridge`/`internal` sandbox
 - **Path validation** — Null byte and traversal protection on all file operations
 - **Dynamic memory throttling** — cgroup v2 `memory.high` based throttling instead of hard kills; 5-level pressure system with auto-recovery
 - **Constant-time auth** — API key comparison resistant to timing attacks

@@ -54,12 +54,15 @@ export class Den {
 
   /**
    * Get the server version information.
-   * @returns Version, commit hash, and build date.
+   * @returns Version, commit hash, build date, and the server's optional
+   * capability tokens. `features` is a capability hint only (NOT auth); it is
+   * absent on servers that predate it — treat a missing token as "unsupported".
    */
   async version(): Promise<{
     version: string;
     commit: string;
     build_date: string;
+    features?: string[];
   }> {
     const response = await fetch(`${this.baseUrl}/api/v1/version`, {
       headers: this.headers,
@@ -71,6 +74,7 @@ export class Den {
       version: string;
       commit: string;
       build_date: string;
+      features?: string[];
     }>;
   }
 }

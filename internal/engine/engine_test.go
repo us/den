@@ -13,6 +13,7 @@ import (
 	"github.com/us/den/internal/config"
 	"github.com/us/den/internal/engine/enginetest"
 	"github.com/us/den/internal/runtime"
+	"github.com/us/den/internal/runtime/netpolicy"
 	"github.com/us/den/internal/store"
 )
 
@@ -33,7 +34,7 @@ func newTestEngine(t *testing.T) (*Engine, *enginetest.MockRuntime) {
 		DefaultPidLimit: 256,
 	}
 
-	eng := NewEngine(mock, st, cfg, config.S3Config{}, config.DefaultConfig().Resource, slog.Default())
+	eng := NewEngine(mock, st, cfg, config.S3Config{}, config.DefaultConfig().Resource, netpolicy.Policy{}, slog.Default())
 	t.Cleanup(func() {
 		eng.Shutdown(context.Background())
 	})

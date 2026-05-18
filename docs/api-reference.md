@@ -587,7 +587,7 @@ Response `204 No Content`
 
 ---
 
-## Port Forwarding
+## Ports
 
 ### List Ports
 
@@ -606,7 +606,18 @@ Response `200 OK`:
 ]
 ```
 
-Ports are configured at sandbox creation time via the `ports` field in the create request. Forwarded ports bind to `127.0.0.1` only.
+### Add / Remove Ports
+
+```
+POST   /api/v1/sandboxes/{id}/ports        → 501 Not Implemented
+DELETE /api/v1/sandboxes/{id}/ports/{port} → 501 Not Implemented
+```
+
+Port mappings are **fixed at sandbox creation** via the `ports` field in the create
+request. They are published **Docker-natively to `127.0.0.1` only, and only in
+`network_mode=bridge`** — inert in `internal` (the default), rejected in `none`. There
+is no userspace forwarder and no runtime add/remove, so both mutation endpoints
+permanently return `501`.
 
 ---
 

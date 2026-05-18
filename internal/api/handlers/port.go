@@ -31,14 +31,19 @@ func (h *PortHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sandbox.Ports)
 }
 
+// portsUnsupportedMsg is the committed 501 body for both dynamic port
+// mutation endpoints. Port mappings are fixed at sandbox creation and
+// published by Docker itself (HostConfig.PortBindings) only in
+// network_mode=bridge; there is no userspace proxy to add/remove at runtime.
+// The dead in-process PortForwarder was removed in v9.
+const portsUnsupportedMsg = "dynamic port forwarding is not supported: port mappings are fixed at sandbox creation and only published in network_mode=bridge (Docker-native, no runtime proxy)"
+
 // Add handles POST /api/v1/sandboxes/{id}/ports.
 func (h *PortHandler) Add(w http.ResponseWriter, r *http.Request) {
-	// Dynamic port forwarding would require the PortForwarder
-	// For now, ports are specified at sandbox creation time
-	writeError(w, http.StatusNotImplemented, "dynamic port forwarding not yet implemented")
+	writeError(w, http.StatusNotImplemented, portsUnsupportedMsg)
 }
 
 // Remove handles DELETE /api/v1/sandboxes/{id}/ports/{port}.
 func (h *PortHandler) Remove(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "dynamic port removal not yet implemented")
+	writeError(w, http.StatusNotImplemented, portsUnsupportedMsg)
 }

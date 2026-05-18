@@ -338,7 +338,7 @@ DELETE /api/v1/snapshots/{snapshotId}
 
 ---
 
-## 端口转发
+## 端口
 
 ### 列出端口
 
@@ -346,7 +346,17 @@ DELETE /api/v1/snapshots/{snapshotId}
 GET /api/v1/sandboxes/{id}/ports
 ```
 
-端口在创建沙箱时通过 `ports` 字段配置。转发端口仅绑定到 `127.0.0.1`。
+### 新增 / 删除端口
+
+```
+POST   /api/v1/sandboxes/{id}/ports        → 501 Not Implemented
+DELETE /api/v1/sandboxes/{id}/ports/{port} → 501 Not Implemented
+```
+
+端口映射在**创建沙箱时固定**（创建请求的 `ports` 字段），由 Docker 原生发布，
+**仅绑定到 `127.0.0.1`，且仅在 `network_mode=bridge` 下生效** —— 在 `internal`
+（默认）下惰性，在 `none` 下被拒绝。没有用户态转发器，也不支持运行时增删，
+因此两个变更端点永久返回 `501`。
 
 ---
 

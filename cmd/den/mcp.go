@@ -11,7 +11,9 @@ import (
 	"github.com/us/den/internal/config"
 	"github.com/us/den/internal/engine"
 	"github.com/us/den/internal/mcp"
+	"github.com/us/den/internal/runtime"
 	"github.com/us/den/internal/runtime/docker"
+	"github.com/us/den/internal/runtime/netpolicy"
 	"github.com/us/den/internal/store"
 )
 
@@ -43,6 +45,9 @@ func mcpCmd() *cobra.Command {
 
 			rt, err := docker.New(
 				docker.WithNetworkID(cfg.Runtime.NetworkID),
+				docker.WithNetworkMode(runtime.NetworkMode(cfg.Runtime.DefaultNetworkMode)),
+				docker.WithReconcileNetwork(cfg.Runtime.ReconcileNetwork),
+				docker.WithAllowUnsafeBridge(cfg.Runtime.AllowUnsafeBridge),
 				docker.WithLogger(logger),
 			)
 			if err != nil {
@@ -50,13 +55,28 @@ func mcpCmd() *cobra.Command {
 			}
 
 			ctx := context.Background()
-			if err := rt.Ping(ctx); err != nil {
-				return fmt.Errorf("docker not available: %w", err)
+
+			// SECURITY-INVARIANT: mcp mode is stdio-only; it MUST NOT open a
+			// network listener. guard_test.go enforces this structurally with
+			// a go/parser scan of this file — do not add net/http server code
+			// here, and do not delete this comment (it is a test tripwire).
+			//
+			// Same ordered, fail-fast startup as `serve`. MCP is stdio-only:
+			// the bind guard is a no-op (httpListener=false), but the
+			// bridge-refusal guard still runs — a bridge sandbox has
+			// unfiltered egress regardless of whether den exposes an HTTP API.
+			if err := runStartup(ctx, startupSteps{
+				ping:      rt.Ping,
+				guard:     func(c context.Context) error { return applyNetworkGuards(c, rt, cfg, logger, false) },
+				reconcile: func(c context.Context) error { return rt.Reconcile(c, st) },
+				ensureNet: rt.EnsureNetwork,
+			}); err != nil {
+				return err
 			}
 
-			rt.EnsureNetwork(ctx)
-
-			eng := engine.NewEngine(rt, st, cfg.Sandbox, cfg.S3, cfg.Resource, logger)
+			eng := engine.NewEngine(rt, st, cfg.Sandbox, cfg.S3, cfg.Resource,
+				netpolicy.Policy{DefaultMode: runtime.NetworkMode(cfg.Runtime.DefaultNetworkMode)},
+				logger)
 
 			srv := mcp.NewServer(eng, logger)
 			return srv.Run(ctx)

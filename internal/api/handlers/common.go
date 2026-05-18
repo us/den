@@ -15,6 +15,12 @@ var (
 	buildDate = "unknown"
 )
 
+// ServerFeatures advertises optional server capabilities to clients. It is a
+// capability hint only — NOT an authentication or authorization signal. SDKs
+// use it lazily to fail fast against servers that predate a feature. Keep the
+// tokens stable; they are part of the public API surface.
+var ServerFeatures = []string{"network_mode"}
+
 // SetVersion sets the build version info.
 func SetVersion(v, c, b string) {
 	version = v
@@ -52,15 +58,19 @@ func HealthHandler(rt runtime.Runtime) http.HandlerFunc {
 			})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":   "ok",
+			"features": ServerFeatures,
+		})
 	}
 }
 
 // Version returns server version info.
 func Version(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"version":    version,
 		"commit":     commit,
 		"build_date": buildDate,
+		"features":   ServerFeatures,
 	})
 }

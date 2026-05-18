@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 	"unicode/utf8"
 
 	"github.com/us/den/internal/pathutil"
 	"github.com/us/den/internal/runtime"
+	"github.com/us/den/internal/runtime/netpolicy"
 )
 
 // ToolHandler processes a tool call and returns a text result or an error.
@@ -47,6 +49,11 @@ type createSandboxArgs struct {
 	Timeout int    `json:"timeout"` // seconds
 	CPU     int64  `json:"cpu"`     // NanoCPUs
 	Memory  int64  `json:"memory"`  // bytes
+	// NetworkMode is decode-only: only "" (inherit) or "none" (more
+	// isolation) are accepted; any other value is rejected by the engine
+	// validator. No omitempty — the field is invariant-exempt (an MCP arg
+	// struct, not a serialized invariant surface).
+	NetworkMode runtime.NetworkMode `json:"network_mode"`
 }
 
 func toolCreateSandbox(s *Server) ToolDef {
@@ -76,6 +83,11 @@ Typical workflow: create_sandbox → exec/write_file → destroy_sandbox.`,
 					"type":        "integer",
 					"description": "Memory limit in bytes. Uses the server default if omitted.",
 				},
+				"network_mode": map[string]any{
+					"type":        "string",
+					"enum":        []string{"", "none"},
+					"description": "Per-sandbox network override. Only \"\" (inherit the server default) or \"none\" (no network at all) are accepted; a per-sandbox value may only increase isolation.",
+				},
 			},
 		},
 		Handler: func(ctx context.Context, raw json.RawMessage) (string, error) {
@@ -87,9 +99,10 @@ Typical workflow: create_sandbox → exec/write_file → destroy_sandbox.`,
 			}
 
 			cfg := runtime.SandboxConfig{
-				Image:  args.Image,
-				CPU:    args.CPU,
-				Memory: args.Memory,
+				Image:       args.Image,
+				CPU:         args.CPU,
+				Memory:      args.Memory,
+				NetworkMode: args.NetworkMode,
 			}
 			if args.Timeout > 0 {
 				cfg.Timeout = time.Duration(args.Timeout) * time.Second
@@ -97,6 +110,13 @@ Typical workflow: create_sandbox → exec/write_file → destroy_sandbox.`,
 
 			sb, err := s.engine.CreateSandbox(ctx, cfg)
 			if err != nil {
+				// Same typed-validation contract as the HTTP handler: a
+				// caller-input violation surfaces as the stable
+				// ValidationError message, not an opaque internal error.
+				var verr *netpolicy.ValidationError
+				if errors.As(err, &verr) {
+					return "", verr
+				}
 				return "", err
 			}
 

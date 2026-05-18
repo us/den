@@ -18,6 +18,7 @@ import (
 	"github.com/us/den/internal/engine"
 	"github.com/us/den/internal/runtime"
 	"github.com/us/den/internal/runtime/docker"
+	"github.com/us/den/internal/runtime/netpolicy"
 	"github.com/us/den/internal/storage"
 	"github.com/us/den/internal/store"
 )
@@ -74,7 +75,7 @@ func newIntegrationEngine(t *testing.T) *engine.Engine {
 		},
 	}
 
-	eng := engine.NewEngine(rt, st, cfg, getTestS3Config(), config.DefaultConfig().Resource, logger)
+	eng := engine.NewEngine(rt, st, cfg, getTestS3Config(), config.DefaultConfig().Resource, netpolicy.Policy{}, logger)
 	t.Cleanup(func() { eng.Shutdown(context.Background()) })
 
 	return eng

@@ -16,11 +16,31 @@ const (
 	StatusError    SandboxStatus = "error"
 )
 
+// NetworkMode selects the network topology a sandbox container runs with.
+//
+//   - NetworkModeInternal: attached to den-net with Internal:true. No egress,
+//     no working port publishing (today's behavior). The bind guard prevents
+//     the control-plane escape; nothing else is contained.
+//   - NetworkModeBridge:   attached to den-net with Internal:false. Egress and
+//     127.0.0.1 port publishing work. Refused unless allow_unsafe_bridge=true.
+//   - NetworkModeNone:     no network at all (empty EndpointsConfig +
+//     HostConfig.NetworkMode="none"). The only v1 tenant/egress boundary.
+//
+// The empty string is not a valid stored mode; it means "inherit" at the API
+// boundary and is resolved to a concrete mode before the Docker layer.
+type NetworkMode string
+
+const (
+	NetworkModeInternal NetworkMode = "internal"
+	NetworkModeBridge   NetworkMode = "bridge"
+	NetworkModeNone     NetworkMode = "none"
+)
+
 // PortMapping defines a port forwarding between host and sandbox.
 type PortMapping struct {
 	SandboxPort int    `json:"sandbox_port"`
 	HostPort    int    `json:"host_port"`
-	Protocol    string `json:"protocol,omitempty"` // "tcp" (default) or "udp"
+	Protocol    string `json:"protocol,omitempty"` // always "tcp"; udp is rejected
 }
 
 // VolumeMount defines a named volume to mount into a sandbox.
@@ -68,21 +88,26 @@ type StorageConfig struct {
 
 // SandboxConfig holds configuration for creating a new sandbox.
 type SandboxConfig struct {
-	Image      string            `json:"image"`
-	Env        map[string]string `json:"env,omitempty"`
-	WorkDir    string            `json:"workdir,omitempty"`
-	Cmd        []string          `json:"cmd,omitempty"`
-	CPU        int64             `json:"cpu,omitempty"`        // NanoCPUs (1e9 = 1 core)
-	Memory     int64             `json:"memory,omitempty"`     // bytes
-	DiskLimit  int64             `json:"disk_limit,omitempty"` // bytes
-	PidLimit   int64             `json:"pid_limit,omitempty"`
-	Timeout    time.Duration     `json:"timeout,omitempty"`
-	Ports      []PortMapping     `json:"ports,omitempty"`
-	Labels     map[string]string `json:"labels,omitempty"`
-	NetworkID  string            `json:"-"`
-	ReadOnlyFS bool              `json:"readonly_fs,omitempty"`
-	Storage    *StorageConfig    `json:"storage,omitempty"`
-	TmpfsMap   map[string]string `json:"-"` // Computed by engine from storage config + defaults
+	Image     string            `json:"image"`
+	Env       map[string]string `json:"env,omitempty"`
+	WorkDir   string            `json:"workdir,omitempty"`
+	Cmd       []string          `json:"cmd,omitempty"`
+	CPU       int64             `json:"cpu,omitempty"`        // NanoCPUs (1e9 = 1 core)
+	Memory    int64             `json:"memory,omitempty"`     // bytes
+	DiskLimit int64             `json:"disk_limit,omitempty"` // bytes
+	PidLimit  int64             `json:"pid_limit,omitempty"`
+	Timeout   time.Duration     `json:"timeout,omitempty"`
+	Ports     []PortMapping     `json:"ports,omitempty"`
+	Labels    map[string]string `json:"labels,omitempty"`
+	NetworkID string            `json:"-"`
+	// NetworkMode carries the per-sandbox requested mode on the way in
+	// (only "" or "none" are accepted from a caller) and the resolved
+	// effective mode on the way out (set by the engine before the Docker
+	// boundary). The Docker runtime reads the effective value here.
+	NetworkMode NetworkMode       `json:"network_mode,omitempty"`
+	ReadOnlyFS  bool              `json:"readonly_fs,omitempty"`
+	Storage     *StorageConfig    `json:"storage,omitempty"`
+	TmpfsMap    map[string]string `json:"-"` // Computed by engine from storage config + defaults
 }
 
 // SandboxInfo holds runtime information about a sandbox.

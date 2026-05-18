@@ -19,8 +19,13 @@ server:
 
 runtime:
   backend: "docker"
-  docker_host: ""
+  docker_host: ""                # INERT — use the DOCKER_HOST env var
   network_id: "den-net"
+  default_network_mode: "internal"  # internal | bridge | none
+  reconcile_network: false
+  allow_unsafe_bridge: false     # required to start with bridge
+  allow_unsafe_bind: false       # dangerous last-resort; disables bind guard
+  platform_override: ""          # "" or "linux-native-docker-co-resident"
 
 sandbox:
   default_image: "ubuntu:22.04"
@@ -86,11 +91,90 @@ Prefix `DEN_` with `__` as nesting separator:
 | `sandbox.max_sandboxes` | `DEN_SANDBOX__MAX_SANDBOXES` |
 | `sandbox.default_memory` | `DEN_SANDBOX__DEFAULT_MEMORY` |
 | `sandbox.default_cpu` | `DEN_SANDBOX__DEFAULT_CPU` |
+| `runtime.default_network_mode` | `DEN_RUNTIME__DEFAULT_NETWORK_MODE` |
+| `runtime.reconcile_network` | `DEN_RUNTIME__RECONCILE_NETWORK` |
+| `runtime.allow_unsafe_bridge` | `DEN_RUNTIME__ALLOW_UNSAFE_BRIDGE` |
+| `runtime.allow_unsafe_bind` | `DEN_RUNTIME__ALLOW_UNSAFE_BIND` |
+| `runtime.platform_override` | `DEN_RUNTIME__PLATFORM_OVERRIDE` |
 | `auth.enabled` | `DEN_AUTH__ENABLED` |
 | `log.level` | `DEN_LOG__LEVEL` |
 | `s3.endpoint` | `DEN_S3__ENDPOINT` |
 | `s3.access_key` | `DEN_S3__ACCESS_KEY` |
 | `s3.secret_key` | `DEN_S3__SECRET_KEY` |
+
+## Network Modes & The Bind Guard
+
+### Modes
+
+`runtime.default_network_mode` sets the global default posture for every
+sandbox. A per-sandbox `network_mode` (HTTP `network_mode`, MCP `network_mode`)
+may only be `""` (inherit the global default) or `"none"` — a per-sandbox value
+may only **increase** isolation, never decrease it. Any other per-sandbox value
+(including one equal to the global default) is an **HTTP 400** / MCP tool error.
+
+| Mode | Docker network | Egress | Host port publishing | Tenant boundary? |
+|------|----------------|--------|----------------------|------------------|
+| `internal` *(default)* | `den-net`, `Internal:true` | ✗ | ✗ (port mappings accepted but inert, with a warning) | **No** |
+| `bridge` | `den-net`, `Internal:false` | ✓ unfiltered | ✓ `127.0.0.1` | No |
+| `none` | none | ✗ | ✗ (`ports` ⇒ 400) | **Yes — the only one in v1** |
+
+> **`internal` does NOT contain a sandbox.** It still reaches the bridge
+> gateway, the embedded DNS resolver (`127.0.0.11`) and any host service bound
+> to `0.0.0.0`. Only `none` is a tenant/egress boundary in v1. Egress filtering
+> for `internal` is a tracked follow-up, not in v1.
+
+`bridge` **refuses to start** unless `runtime.allow_unsafe_bridge=true`: there
+is no egress filter in v1, so every bridge sandbox gets NAT'd, unfiltered egress
+to RFC1918, link-local metadata and any host service. This refusal runs in
+**both** `serve` and `mcp` mode.
+
+### The bind guard
+
+When the unauthenticated HTTP control plane would be reachable from sandboxes
+on a host that is **not machine-detectably safe**, `den serve` **refuses to
+start** (non-zero exit, committed remediation message). It is a no-op in `mcp`
+stdio mode (no HTTP listener), but the bridge refusal above still applies there.
+
+Starting is permitted iff **any** of:
+
+- `auth.enabled=true` with `api_keys` set (the control plane is authenticated), **or**
+- effective network mode is `none` (no path from a sandbox to the control plane), **or**
+- the host is loopback-bound **and** machine-classified `linux-native-docker`
+  **and** `runtime.platform_override="linux-native-docker-co-resident"` is
+  explicitly set (the co-residency attestation), **or**
+- `runtime.allow_unsafe_bind=true` (dangerous last-resort opt-in).
+
+The loopback branch is **refuse-by-default**: a genuinely native-Linux,
+loopback-bound, auth-off host with `platform_override` **unset** still refuses.
+This is deliberate — co-residency of the Docker socket, the bridge gateway and
+the den process is **not machine-verifiable**, so it must be operator-attested.
+
+`platform_override` accepts **exactly** `""` or the single literal
+`"linux-native-docker-co-resident"` (case-sensitive; any other value is a fatal
+config error). It is **VOID** if the local `unix://` socket is itself proxied to
+a remote/VM daemon (`socat` / `ssh -L` / docker-context / bind-mounted sibling
+socket) — a realistic, not-rare class — in which case the unauthenticated
+control plane is exposed. Both `allow_unsafe_bind=true` and a set
+`platform_override` are logged at **ERROR every start**; they are
+risk-equivalent to bypassing the platform classifier.
+
+### Platform classifier
+
+The host is classified `linux-native-docker` only if **every** clause holds
+(positive allowlist; any failure ⇒ `unknown` ⇒ fail-closed):
+
+- the den process's own `runtime.GOOS == "linux"` (closes the
+  macOS/Windows-host-via-`unix://`-socket-to-Linux-VM hole),
+- `docker info` succeeded and `OSType == "linux"`,
+- `OperatingSystem` does not contain `Docker Desktop`,
+- `KernelVersion` contains neither `linuxkit` nor `microsoft-standard-WSL2`,
+- security options decode and contain no `name=rootless`,
+- the negotiated Docker daemon host is a local `unix://` socket (not `tcp://`,
+  `ssh://`, `npipe://`).
+
+So loopback alone is **insufficient** on Docker Desktop, rootless, a remote
+daemon, or a non-Linux den host — those refuse unless `auth`/`none`/the
+explicit opt-ins are used.
 
 ## Resource Management
 

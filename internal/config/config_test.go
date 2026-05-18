@@ -88,3 +88,72 @@ func TestLoadInvalidFile(t *testing.T) {
 	_, err := Load("/nonexistent/path/config.yaml")
 	assert.Error(t, err)
 }
+
+func TestValidate_DefaultNetworkModeEnum(t *testing.T) {
+	for _, ok := range []string{"", "internal", "bridge", "none"} {
+		c := DefaultConfig()
+		c.Runtime.DefaultNetworkMode = ok
+		assert.NoError(t, c.Validate(), "mode %q should be valid", ok)
+	}
+	for _, bad := range []string{"Bridge", "INTERNAL", "host", "garbage", " none"} {
+		c := DefaultConfig()
+		c.Runtime.DefaultNetworkMode = bad
+		err := c.Validate()
+		require.Error(t, err, "mode %q should be invalid", bad)
+		assert.Contains(t, err.Error(), "default_network_mode")
+	}
+}
+
+func TestValidate_PlatformOverride(t *testing.T) {
+	c := DefaultConfig()
+	c.Runtime.PlatformOverride = ""
+	assert.NoError(t, c.Validate())
+
+	c = DefaultConfig()
+	c.Runtime.PlatformOverride = "linux-native-docker-co-resident"
+	assert.NoError(t, c.Validate())
+
+	for _, bad := range []string{"yes", "linux-native", "Linux-Native-Docker-Co-Resident", "true"} {
+		c = DefaultConfig()
+		c.Runtime.PlatformOverride = bad
+		err := c.Validate()
+		require.Error(t, err, "override %q should be invalid", bad)
+		assert.Contains(t, err.Error(), "platform_override")
+	}
+}
+
+func TestLoad_DefaultNetworkModeEnvOverride(t *testing.T) {
+	t.Setenv("DEN_RUNTIME__DEFAULT_NETWORK_MODE", "none")
+	cfg, err := Load("")
+	require.NoError(t, err)
+	assert.Equal(t, "none", cfg.Runtime.DefaultNetworkMode)
+}
+
+func TestWarnings(t *testing.T) {
+	// docker_host set ⇒ inert advisory.
+	c := DefaultConfig()
+	c.Runtime.DockerHost = "tcp://somewhere:2375"
+	c.Runtime.DefaultNetworkMode = "none" // suppress the internal advisory
+	w := c.Warnings()
+	require.NotEmpty(t, w)
+	joined := ""
+	for _, line := range w {
+		joined += line + "\n"
+	}
+	assert.Contains(t, joined, "runtime.docker_host")
+	assert.Contains(t, joined, "NO effect")
+
+	// internal (default) ⇒ not-a-boundary advisory.
+	c = DefaultConfig()
+	c.Runtime.DockerHost = ""
+	c.Runtime.DefaultNetworkMode = "" // "" ⇒ internal
+	w = c.Warnings()
+	require.NotEmpty(t, w)
+	assert.Contains(t, w[0], "does NOT contain a sandbox")
+
+	// none ⇒ no advisories at all.
+	c = DefaultConfig()
+	c.Runtime.DockerHost = ""
+	c.Runtime.DefaultNetworkMode = "none"
+	assert.Empty(t, c.Warnings())
+}

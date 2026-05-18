@@ -16,6 +16,7 @@ import (
 
 	"github.com/us/den/internal/config"
 	"github.com/us/den/internal/runtime"
+	"github.com/us/den/internal/runtime/netpolicy"
 	"github.com/us/den/internal/storage"
 	"github.com/us/den/internal/store"
 )
@@ -34,6 +35,7 @@ type Engine struct {
 	config          config.SandboxConfig
 	s3Config        config.S3Config
 	resourceConfig  config.ResourceConfig
+	netPolicy       netpolicy.Policy
 	sandboxes       sync.Map // map[string]*Sandbox
 	mu              sync.Mutex
 	count           int
@@ -45,13 +47,14 @@ type Engine struct {
 }
 
 // NewEngine creates a new Engine.
-func NewEngine(rt runtime.Runtime, st store.Store, cfg config.SandboxConfig, s3Cfg config.S3Config, resCfg config.ResourceConfig, logger *slog.Logger) *Engine {
+func NewEngine(rt runtime.Runtime, st store.Store, cfg config.SandboxConfig, s3Cfg config.S3Config, resCfg config.ResourceConfig, policy netpolicy.Policy, logger *slog.Logger) *Engine {
 	e := &Engine{
 		runtime:        rt,
 		store:          st,
 		config:         cfg,
 		s3Config:       s3Cfg,
 		resourceConfig: resCfg,
+		netPolicy:      policy,
 		logger:         logger,
 		stopCh:         make(chan struct{}),
 		pressureCh:     make(chan PressureEvent, 16),
@@ -210,6 +213,14 @@ func (e *Engine) updateContainerMemoryLimits(evt PressureEvent) {
 
 // CreateSandbox creates and starts a new sandbox.
 func (e *Engine) CreateSandbox(ctx context.Context, cfg runtime.SandboxConfig) (*Sandbox, error) {
+	// Single network-policy chokepoint: validates the per-sandbox request,
+	// resolves the effective mode onto cfg.NetworkMode, normalizes ports and
+	// strips den.* labels. Returns a *netpolicy.ValidationError un-wrapped so
+	// the HTTP/MCP handlers can map it to a stable 400.
+	if err := e.netPolicy.ResolveAndValidate(&cfg); err != nil {
+		return nil, err
+	}
+
 	e.mu.Lock()
 	// Check pressure under lock to prevent TOCTOU race
 	if pressure := e.pressureMonitor.CurrentEvent(); pressure.Level >= PressureCritical {
@@ -261,6 +272,7 @@ func (e *Engine) CreateSandbox(ctx context.Context, cfg runtime.SandboxConfig) (
 		Image:     cfg.Image,
 		status:    runtime.StatusCreating,
 		Config:    cfg,
+		Ports:     cfg.Ports,
 		CreatedAt: time.Now().UTC(),
 	}
 	if timeout > 0 {

@@ -52,6 +52,25 @@ type RuntimeConfig struct {
 	Backend    string `koanf:"backend"` // "docker"
 	DockerHost string `koanf:"docker_host"`
 	NetworkID  string `koanf:"network_id"`
+
+	// DefaultNetworkMode is the global default sandbox network mode:
+	// "internal" (default), "bridge", or "none". Empty is treated as
+	// "internal" for backward compatibility.
+	DefaultNetworkMode string `koanf:"default_network_mode"`
+	// ReconcileNetwork enables operator-initiated, spoof-resistant
+	// destruction+recreation of the managed network when its mode changed.
+	ReconcileNetwork bool `koanf:"reconcile_network"`
+	// AllowUnsafeBridge must be true to start with default_network_mode=bridge
+	// (NAT'd, unfiltered egress; no egress filter in v1).
+	AllowUnsafeBridge bool `koanf:"allow_unsafe_bridge"`
+	// AllowUnsafeBind is the dangerous last-resort opt-in that disables the
+	// bind guard entirely (exposes the unauthenticated control plane).
+	AllowUnsafeBind bool `koanf:"allow_unsafe_bind"`
+	// PlatformOverride, when set to the single literal
+	// "linux-native-docker-co-resident", is the operator's MANDATORY
+	// co-residency attestation that unlocks the bind guard's loopback branch.
+	// Any other non-empty value is a config error.
+	PlatformOverride string `koanf:"platform_override"`
 }
 
 // TmpfsDefault defines a default tmpfs mount.
@@ -123,8 +142,9 @@ func DefaultConfig() *Config {
 			RateLimitBurst: 20,
 		},
 		Runtime: RuntimeConfig{
-			Backend:   "docker",
-			NetworkID: "den-net",
+			Backend:            "docker",
+			NetworkID:          "den-net",
+			DefaultNetworkMode: "internal",
 		},
 		Sandbox: SandboxConfig{
 			DefaultImage:         "den/default:latest",
@@ -217,7 +237,45 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("monitor_interval must be at least 1s")
 	}
 
+	// Network mode enum. "" is accepted and treated as "internal".
+	switch c.Runtime.DefaultNetworkMode {
+	case "", "internal", "bridge", "none":
+		// ok
+	default:
+		return fmt.Errorf("invalid runtime.default_network_mode %q: must be internal, bridge, or none", c.Runtime.DefaultNetworkMode)
+	}
+
+	// platform_override accepts exactly "" or the single co-residency
+	// attestation literal, case-sensitive. Keep this literal in sync with
+	// netpolicy.PlatformOverrideCoResident (config stays a stdlib leaf, so
+	// the constant is duplicated here intentionally).
+	switch c.Runtime.PlatformOverride {
+	case "", "linux-native-docker-co-resident":
+		// ok
+	default:
+		return fmt.Errorf("invalid runtime.platform_override %q: must be empty or \"linux-native-docker-co-resident\"", c.Runtime.PlatformOverride)
+	}
+
 	return nil
+}
+
+// Warnings returns non-fatal configuration advisories. It never fails a
+// startup; callers log each line at WARN. Security-critical disclosures
+// (allow_unsafe_bind / platform_override attestation) are logged at ERROR by
+// the guard wiring, not here.
+func (c *Config) Warnings() []string {
+	var w []string
+	if c.Runtime.DockerHost != "" {
+		w = append(w, "runtime.docker_host is set but has NO effect; the Docker endpoint is controlled solely by the DOCKER_HOST environment variable")
+	}
+	mode := c.Runtime.DefaultNetworkMode
+	if mode == "" {
+		mode = "internal"
+	}
+	if mode == "internal" {
+		w = append(w, "network_mode=internal does NOT contain a sandbox: it still reaches the bridge gateway, the embedded DNS resolver and any host service bound to 0.0.0.0. Only network_mode=none is a tenant/egress boundary in v1")
+	}
+	return w
 }
 
 // Load reads configuration from a YAML file and environment variables.

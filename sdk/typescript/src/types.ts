@@ -71,6 +71,13 @@ export interface SandboxConfig {
   ports?: PortMapping[];
   /** Storage configuration (volumes, tmpfs, S3). */
   storage?: StorageConfig;
+  /**
+   * Per-sandbox network override. Only "" (inherit the server default) or
+   * "none" (no network at all) are accepted; any other value — including one
+   * equal to the server default — is rejected with HTTP 400. A per-sandbox
+   * value may only INCREASE isolation, never decrease it.
+   */
+  network_mode?: "" | "none";
 }
 
 /** Options for executing a command inside a sandbox. */
@@ -182,7 +189,7 @@ export interface PortMapping {
   sandbox_port: number;
   /** Port on the host. */
   host_port: number;
-  /** Protocol: "tcp" (default) or "udp". */
+  /** Protocol — always "tcp". Den does not support udp port publishing. */
   protocol?: string;
 }
 

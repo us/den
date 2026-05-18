@@ -17,6 +17,7 @@ import (
 	"github.com/us/den/internal/config"
 	"github.com/us/den/internal/engine"
 	"github.com/us/den/internal/engine/enginetest"
+	"github.com/us/den/internal/runtime/netpolicy"
 	"github.com/us/den/internal/store"
 )
 
@@ -37,7 +38,7 @@ func newTestEngine(t *testing.T) *engine.Engine {
 		DefaultPidLimit: 256,
 	}
 
-	eng := engine.NewEngine(mock, st, cfg, config.S3Config{}, config.DefaultConfig().Resource, slog.Default())
+	eng := engine.NewEngine(mock, st, cfg, config.S3Config{}, config.DefaultConfig().Resource, netpolicy.Policy{}, slog.Default())
 	return eng
 }
 

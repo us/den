@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 )
 
@@ -16,6 +17,12 @@ type Client struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http.Client
+
+	// features caches the server capability tokens after the first
+	// successful /api/v1/version probe. nil until then so a transient
+	// probe failure is retried rather than cached.
+	featMu   sync.Mutex
+	features map[string]bool
 }
 
 // Option configures the Client.
@@ -51,9 +58,10 @@ func New(baseURL string, opts ...Option) *Client {
 
 // PortMapping defines a port forwarding between host and sandbox.
 type PortMapping struct {
-	SandboxPort int    `json:"sandbox_port"`
-	HostPort    int    `json:"host_port"`
-	Protocol    string `json:"protocol,omitempty"`
+	SandboxPort int `json:"sandbox_port"`
+	HostPort    int `json:"host_port"`
+	// Protocol is always "tcp"; Den does not support udp port publishing.
+	Protocol string `json:"protocol,omitempty"`
 }
 
 // VolumeMount defines a named volume to mount into a sandbox.
@@ -101,6 +109,11 @@ type SandboxConfig struct {
 	PidLimit int64             `json:"pid_limit,omitempty"`
 	Ports    []PortMapping     `json:"ports,omitempty"`
 	Storage  *StorageConfig    `json:"storage,omitempty"`
+	// NetworkMode is the per-sandbox network override. Only "" (inherit the
+	// server default) or "none" (no network) are accepted; any other value
+	// — including one equal to the server default — is rejected with HTTP
+	// 400. A per-sandbox value may only INCREASE isolation.
+	NetworkMode string `json:"network_mode,omitempty"`
 }
 
 // Sandbox represents a sandbox instance.
@@ -110,6 +123,9 @@ type Sandbox struct {
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
+	// Ports echoes the resolved port mappings. Populated only in bridge
+	// mode; empty in internal/none (publishing is inert without egress).
+	Ports []PortMapping `json:"ports,omitempty"`
 }
 
 // ExecResult holds the result of command execution.
@@ -127,8 +143,39 @@ type SnapshotInfo struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// requireFeature fails fast if the server does not advertise feat. It is a
+// capability hint only — NOT auth. The probe is lazy and scoped: callers
+// invoke it only when the corresponding option is actually used, so servers
+// that predate a feature keep working for everything else. The result is
+// cached only on success.
+func (c *Client) requireFeature(ctx context.Context, feat string) error {
+	c.featMu.Lock()
+	defer c.featMu.Unlock()
+	if c.features == nil {
+		var v struct {
+			Features []string `json:"features"`
+		}
+		if err := c.get(ctx, "/api/v1/version", &v); err != nil {
+			return fmt.Errorf("checking server %q support: %w", feat, err)
+		}
+		c.features = make(map[string]bool, len(v.Features))
+		for _, f := range v.Features {
+			c.features[f] = true
+		}
+	}
+	if !c.features[feat] {
+		return fmt.Errorf("server does not advertise the %q feature; upgrade Den or omit network_mode", feat)
+	}
+	return nil
+}
+
 // CreateSandbox creates a new sandbox.
 func (c *Client) CreateSandbox(ctx context.Context, cfg SandboxConfig) (*Sandbox, error) {
+	if cfg.NetworkMode != "" {
+		if err := c.requireFeature(ctx, "network_mode"); err != nil {
+			return nil, err
+		}
+	}
 	var sb Sandbox
 	if err := c.post(ctx, "/api/v1/sandboxes", cfg, &sb); err != nil {
 		return nil, err

@@ -120,3 +120,26 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## Network mode & ports
+
+All three SDKs accept an optional per-sandbox `network_mode` on the create
+config. It may only be `""` (inherit the server's global default) or `"none"`
+(no network) — a per-sandbox value may only **increase** isolation. Any other
+value, including one equal to the server default, is rejected by the server
+with HTTP `400`.
+
+When `network_mode` is set, the SDK performs a **lazy, scoped** capability
+probe (`GET /api/v1/version`, cached on first success) and fails fast with a
+clear error if the server does not advertise the `network_mode` feature. The
+`features` list is a **capability hint only — not an authentication signal**;
+servers that predate it return no tokens, and the probe is skipped entirely
+when `network_mode` is not used, so older servers keep working for everything
+else.
+
+The `ports` field on a returned sandbox is **present iff non-empty**: it is
+populated only in `network_mode=bridge` (Docker-native publishing to
+`127.0.0.1`), and is absent/empty in `internal` (the default) and `none`,
+where publishing is inert. Port mappings are fixed at creation; there is no
+runtime add/remove (`POST`/`DELETE /ports` → `501`). Protocol is always
+`tcp` — udp is not supported.

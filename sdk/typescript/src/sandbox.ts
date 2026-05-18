@@ -312,8 +312,37 @@ export class SandboxManager {
   /** @internal */
   readonly http: HttpClient;
 
+  /**
+   * Server capability tokens, lazily fetched and cached on the first
+   * successful probe (null until then so a transient failure is retried).
+   * A missing token means "unsupported" — this is a capability hint only,
+   * NOT an authentication or authorization signal.
+   */
+  private features: Set<string> | null = null;
+
   constructor(baseUrl: string, headers: Record<string, string>) {
     this.http = new HttpClient(baseUrl, headers);
+  }
+
+  /**
+   * Fail fast if the server does not advertise `feature`. Lazy and scoped:
+   * only invoked when the corresponding option is actually used, so servers
+   * that predate a feature keep working for everything else.
+   */
+  private async requireFeature(feature: string): Promise<void> {
+    if (this.features === null) {
+      const v = await this.http.request<{ features?: string[] }>(
+        "GET",
+        "/api/v1/version",
+      );
+      this.features = new Set(v.features ?? []);
+    }
+    if (!this.features.has(feature)) {
+      throw new DenError(
+        0,
+        `server does not advertise the "${feature}" feature; upgrade Den or omit network_mode`,
+      );
+    }
   }
 
   /**
@@ -322,6 +351,9 @@ export class SandboxManager {
    * @returns A Sandbox instance ready for interaction.
    */
   async create(config: SandboxConfig): Promise<Sandbox> {
+    if (config.network_mode) {
+      await this.requireFeature("network_mode");
+    }
     const info = await this.http.request<SandboxInfo>(
       "POST",
       "/api/v1/sandboxes",

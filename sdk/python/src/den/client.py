@@ -100,7 +100,10 @@ class Den:
         """Get server version info (sync).
 
         Returns:
-            Dictionary with version, commit, and build_date.
+            Dictionary with ``version``, ``commit``, ``build_date``, and
+            ``features`` (a list of server capability tokens). ``features``
+            is a capability hint only — NOT an auth signal — and is absent on
+            servers that predate it; treat a missing token as "unsupported".
         """
         resp = self._client.get(f"{self._base_url}/version")
         resp.raise_for_status()
@@ -110,7 +113,10 @@ class Den:
         """Get server version info (async).
 
         Returns:
-            Dictionary with version, commit, and build_date.
+            Dictionary with ``version``, ``commit``, ``build_date``, and
+            ``features`` (a list of server capability tokens). ``features``
+            is a capability hint only — NOT an auth signal — and is absent on
+            servers that predate it; treat a missing token as "unsupported".
         """
         resp = await self._async_client.get(f"{self._base_url}/version")
         resp.raise_for_status()

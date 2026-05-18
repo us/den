@@ -441,6 +441,43 @@ class SandboxManager:
         self._async_client = async_client
         self._base_url = f"{base_url}/sandboxes"
         self._api_base_url = base_url
+        # Server capability tokens, cached on the first successful probe
+        # (None until then so a transient failure is retried). A missing
+        # token means "unsupported" — capability hint only, NOT an auth
+        # signal.
+        self._features: set[str] | None = None
+
+    def _features_from(self, data: dict) -> set[str]:
+        feats = data.get("features")
+        return set(feats) if isinstance(feats, list) else set()
+
+    def _require_feature(self, feature: str) -> None:
+        """Fail fast (sync) if the server lacks ``feature``.
+
+        Lazy and scoped: only called when the corresponding option is
+        actually used, so servers predating a feature keep working.
+        """
+        if self._features is None:
+            resp = self._client.get(f"{self._api_base_url}/version")
+            _raise_for_status(resp)
+            self._features = self._features_from(resp.json())
+        if feature not in self._features:
+            raise DenError(
+                f'server does not advertise the "{feature}" feature; '
+                "upgrade Den or omit network_mode"
+            )
+
+    async def _arequire_feature(self, feature: str) -> None:
+        """Fail fast (async) if the server lacks ``feature``."""
+        if self._features is None:
+            resp = await self._async_client.get(f"{self._api_base_url}/version")
+            _raise_for_status(resp)
+            self._features = self._features_from(resp.json())
+        if feature not in self._features:
+            raise DenError(
+                f'server does not advertise the "{feature}" feature; '
+                "upgrade Den or omit network_mode"
+            )
 
     def _wrap(self, info: SandboxInfo) -> Sandbox:
         """Wrap a SandboxInfo into a Sandbox instance."""
@@ -463,6 +500,8 @@ class SandboxManager:
         """
         if config is None:
             config = SandboxConfig(**kwargs)
+        if config.network_mode:
+            self._require_feature("network_mode")
         payload = config.model_dump(exclude_none=True)
         resp = self._client.post(self._base_url, json=payload)
         _raise_for_status(resp)
@@ -481,6 +520,8 @@ class SandboxManager:
         """
         if config is None:
             config = SandboxConfig(**kwargs)
+        if config.network_mode:
+            await self._arequire_feature("network_mode")
         payload = config.model_dump(exclude_none=True)
         resp = await self._async_client.post(self._base_url, json=payload)
         _raise_for_status(resp)

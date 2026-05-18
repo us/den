@@ -10,6 +10,7 @@ import (
 
 	"github.com/us/den/internal/engine"
 	"github.com/us/den/internal/runtime"
+	"github.com/us/den/internal/runtime/netpolicy"
 )
 
 // SandboxHandler handles sandbox CRUD operations.
@@ -32,6 +33,11 @@ type createSandboxRequest struct {
 	Memory  int64                  `json:"memory,omitempty"`
 	Ports   []runtime.PortMapping  `json:"ports,omitempty"`
 	Storage *runtime.StorageConfig `json:"storage,omitempty"`
+	// NetworkMode is the per-sandbox override. Only "" (inherit the global
+	// default) or "none" (more isolation) are accepted; any other value —
+	// including one equal to the global default — is a 400. A per-sandbox
+	// override may only INCREASE isolation.
+	NetworkMode runtime.NetworkMode `json:"network_mode,omitempty"`
 }
 
 type sandboxResponse struct {
@@ -63,13 +69,14 @@ func (h *SandboxHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := runtime.SandboxConfig{
-		Image:   req.Image,
-		Env:     req.Env,
-		WorkDir: req.WorkDir,
-		CPU:     req.CPU,
-		Memory:  req.Memory,
-		Ports:   req.Ports,
-		Storage: req.Storage,
+		Image:       req.Image,
+		Env:         req.Env,
+		WorkDir:     req.WorkDir,
+		CPU:         req.CPU,
+		Memory:      req.Memory,
+		Ports:       req.Ports,
+		Storage:     req.Storage,
+		NetworkMode: req.NetworkMode,
 	}
 	if req.Timeout > 0 {
 		cfg.Timeout = time.Duration(req.Timeout) * time.Second
@@ -77,6 +84,11 @@ func (h *SandboxHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	sandbox, err := h.engine.CreateSandbox(r.Context(), cfg)
 	if err != nil {
+		var verr *netpolicy.ValidationError
+		if errors.As(err, &verr) {
+			writeError(w, http.StatusBadRequest, verr.Error())
+			return
+		}
 		if errors.Is(err, engine.ErrLimitReached) {
 			writeError(w, http.StatusTooManyRequests, "maximum sandbox limit reached")
 			return
