@@ -24,6 +24,48 @@ jobs:
       # the no-Docker lint job so they gate every PR.
       - name: cmd/den hardening invariants (unsafe / //go:linkname)
         run: go test ./cmd/den/ -run TestCmdDenHardening -v
+      # Relocated out of the Docker-bound integration-test job so it gates
+      # EVERY PR with no daemon dependency, and widened to also scan
+      # internal/**: integration-tagged tests now live there too (the SSRF /
+      # storage leg). An integration test whose name is not ^TestIntegration_
+      # would be silently excluded by the `-run TestIntegration` filter the
+      # dind AND native-host jobs use — a green-but-empty false pass.
+      - name: Integration test meta-check (build tags + naming)
+        run: |
+          set -euo pipefail
+          fail=0
+          shopt -s nullglob
+
+          # (1) Everything under tests/integration/ is integration by
+          #     directory convention: an untagged file there would wrongly
+          #     join the unit build, so the tag MUST be on line 1.
+          for f in tests/integration/*_test.go; do
+            if [ "$(head -1 "$f")" != "//go:build integration" ]; then
+              echo "::error file=$f::missing '//go:build integration' on line 1"
+              fail=1
+            fi
+          done
+
+          # (2) Any _test.go under tests/integration OR internal that carries
+          #     the integration tag must carry it on line 1 and name every
+          #     exported test ^TestIntegration_ (the -run filter's contract).
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            if [ "$(head -1 "$f")" != "//go:build integration" ]; then
+              echo "::error file=$f::'//go:build integration' present but not on line 1"
+              fail=1
+            fi
+            while read -r fn; do
+              case "$fn" in
+                TestIntegration_*) ;;
+                *) echo "::error file=$f::exported test '$fn' must match ^TestIntegration_"
+                   fail=1 ;;
+              esac
+            done < <(grep -oE '^func (Test[A-Za-z0-9_]+)' "$f" | awk '{print $2}')
+          done < <(grep -rlF --include='*_test.go' -- '//go:build integration' \
+                     tests/integration internal 2>/dev/null | sort -u)
+
+          exit $fail
 
   test:
     runs-on: ubuntu-latest
@@ -102,25 +144,9 @@ jobs:
           done
           echo "::error::Docker daemon unreachable at $DOCKER_HOST after 60s"
           exit 1
-      - name: Integration test meta-check (build tags + naming)
-        run: |
-          set -euo pipefail
-          fail=0
-          shopt -s nullglob
-          for f in tests/integration/*_test.go; do
-            if [ "$(head -1 "$f")" != "//go:build integration" ]; then
-              echo "::error file=$f::missing '//go:build integration' on line 1"
-              fail=1
-            fi
-            while read -r fn; do
-              case "$fn" in
-                TestIntegration_*) ;;
-                *) echo "::error file=$f::exported test '$fn' must match ^TestIntegration_"
-                   fail=1 ;;
-              esac
-            done < <(grep -oE '^func (Test[A-Za-z0-9_]+)' "$f" | awk '{print $2}')
-          done
-          exit $fail
+      # The build-tag + naming meta-check now lives in the daemon-free `lint`
+      # job (gates every PR, scans internal/** too). This job keeps only the
+      # runtime min-test-count gate, which needs a real test run.
       - name: Run integration tests (with min-test-count gate)
         run: |
           set -euo pipefail
@@ -136,6 +162,114 @@ jobs:
             echo "::error::min-test-count gate failed: ran=$ran expected>=$expected (build tag / -run filter likely excluded all tests)"
             exit 1
           fi
+
+  # Native-Linux, co-resident, unix-socket Docker topology. The dind
+  # integration-test job structurally CANNOT reach this: its DOCKER_HOST is
+  # tcp://docker:2375 (a remote/proxied daemon), so the platform classifier
+  # fails closed and e2e Leg D (the positive platform_override path) SKIPs.
+  # This job is the ONLY place that proof runs for real, and it also pins the
+  # S3 SSRF exemption against a real RFC1918 MinIO. Per the Phase-4 rollout,
+  # PR-1 ADDS this job while the dind integration-test stays present and
+  # sdk-test still gates on it; PR-2 repoints sdk-test once Leg D is observed
+  # EXECUTED here. The acceptance bar is NOT "job green" — it is "Leg D
+  # EXECUTED, not SKIPped".
+  native-host:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Pre-condition — Docker MUST be a local unix socket
+        # The entire reason this job exists is the unix-socket co-resident
+        # topology. A tcp:// DOCKER_HOST here would silently turn Leg D back
+        # into a SKIP and change the S3 exemption topology — a green but
+        # meaningless run. Fail the whole job loudly instead.
+        run: |
+          set -euo pipefail
+          if [ -n "${DOCKER_HOST:-}" ] && [ "${DOCKER_HOST#unix://}" = "${DOCKER_HOST}" ]; then
+            echo "::error::native-host requires unix:// Docker; DOCKER_HOST='${DOCKER_HOST}'"
+            exit 1
+          fi
+          docker info >/dev/null
+          echo "Docker reachable over ${DOCKER_HOST:-unix:///var/run/docker.sock}"
+
+      - name: Start + seed MinIO on a discovered RFC1918 bridge IP
+        run: |
+          set -euo pipefail
+          docker network create den-minio-net >/dev/null
+          docker run -d --name den-minio \
+            --network den-minio-net --network-alias minio \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data >/dev/null
+          # Wait on the MinIO readiness probe from inside the same network.
+          for i in $(seq 1 60); do
+            if docker run --rm --network den-minio-net curlimages/curl:latest \
+                 -fsS http://minio:9000/minio/health/ready >/dev/null 2>&1; then
+              echo "MinIO ready after ${i}s"; break
+            fi
+            if [ "$i" = 60 ]; then
+              docker logs den-minio || true
+              echo "::error::MinIO never became ready"; exit 1
+            fi
+            sleep 1
+          done
+          # Seed exactly as tests/integration/docker-compose.minio.yml's
+          # createbuckets entrypoint does.
+          docker run --rm --network den-minio-net --entrypoint /bin/sh \
+            minio/mc:latest -c "
+              mc alias set m http://minio:9000 minioadmin minioadmin &&
+              mc mb m/test-bucket &&
+              mc anonymous set public m/test-bucket &&
+              echo 'hello from s3' | mc pipe m/test-bucket/test-data/hello.txt"
+          # Discover MinIO's bridge IP (RFC1918) — never hardcode the subnet.
+          # On a Linux runner the host reaches container IPs directly, so the
+          # on-host `go test` process hits an internal endpoint and exercises
+          # the storage.s3.allow_internal_endpoint exemption for real.
+          MINIO_IP="$(docker inspect -f \
+            '{{ (index .NetworkSettings.Networks "den-minio-net").IPAddress }}' den-minio)"
+          [ -n "$MINIO_IP" ] || { echo "::error::could not discover MinIO bridge IP"; exit 1; }
+          echo "MINIO_ENDPOINT=http://${MINIO_IP}:9000" >> "$GITHUB_ENV"
+          echo "Seeded MinIO at http://${MINIO_IP}:9000 (RFC1918 — exercises the SSRF exemption)"
+
+      - name: Integration tests on native unix-socket Docker (min-test-count gate)
+        run: |
+          set -euo pipefail
+          echo "Using MINIO_ENDPOINT=$MINIO_ENDPOINT"
+          expected=$(grep -rhoE '^func (TestIntegration_[A-Za-z0-9_]+)\(' \
+            tests/integration internal 2>/dev/null \
+            | awk '{print $2}' | sed 's/($//' | sort -u | wc -l | tr -d ' ')
+          echo "Expecting at least $expected TestIntegration_ top-level test(s)"
+          make test-integration 2>&1 | tee /tmp/itest-native.out
+          ran=$(grep -cE '^=== RUN   TestIntegration_[A-Za-z0-9_]+$' /tmp/itest-native.out || true)
+          echo "Ran $ran top-level TestIntegration_ test(s)"
+          if [ "$ran" -lt "$expected" ] || [ "$ran" -eq 0 ]; then
+            echo "::error::min-test-count gate failed: ran=$ran expected>=$expected"
+            exit 1
+          fi
+
+      - name: e2e network proof — Leg D MUST execute (not SKIP)
+        env:
+          DEN_E2E_LOCAL_NATIVE: "1"
+        run: |
+          set -euo pipefail
+          bash scripts/e2e-network.sh 2>&1 | tee /tmp/e2e-native.out
+          # PR-1 acceptance bar: the dind job structurally cannot run Leg D,
+          # so a green run where Leg D SKIPped is a FALSE PASS. Gate on it.
+          if grep -qE '^  SKIP:' /tmp/e2e-native.out; then
+            echo "::error::Leg D was SKIPped on the native runner — the positive"
+            echo "::error::platform_override bind-guard path is UNPROVEN."
+            grep -nE '^(== Leg D|  SKIP:)' /tmp/e2e-native.out || true
+            exit 1
+          fi
+          grep -Fq 'PASS: den STARTED with attested platform_override' /tmp/e2e-native.out \
+            || { echo "::error::Leg D did not report the positive-override PASS"; exit 1; }
+          grep -Fq 'PASS: exact committed MsgPlatformOverrideAttested literal logged' \
+            /tmp/e2e-native.out \
+            || { echo "::error::Leg D did not assert the committed attestation literal"; exit 1; }
+          echo "Leg D EXECUTED and PASSED on native unix-socket Docker."
 
   sdk-test:
     runs-on: ubuntu-latest

@@ -38,6 +38,33 @@ echo ">> building den binary"
 echo ">> pulling $IMAGE"
 docker pull -q "$IMAGE" >/dev/null
 
+# netpolicy_anchor <CONST_NAME> — emit the longest quote/backslash-free
+# string segment of a netpolicy message constant, read straight from the
+# committed Go source. Leg C/D assert this verbatim instead of a loose
+# substring, so the e2e proof tracks the exact committed literal with ZERO
+# shell drift. Quote-bearing segments are excluded on purpose: slog's text
+# handler escapes embedded quotes in the log, so only a quote-free slice of
+# the constant is guaranteed to appear byte-identical on disk.
+netpolicy_anchor() {
+  awk -v name="$1" '
+    $0 ~ "^[[:space:]]*" name " = " { grab=1 }
+    grab {
+      line=$0
+      while (match(line, /"[^"\\]*"/)) {
+        seg=substr(line, RSTART+1, RLENGTH-2)
+        if (length(seg) > length(best)) best=seg
+        line=substr(line, RSTART+RLENGTH)
+      }
+      if ($0 !~ /\+[[:space:]]*$/) { print best; exit }
+    }
+  ' "$REPO/internal/runtime/netpolicy/netpolicy.go"
+}
+
+EXPECT_REFUSAL="$(netpolicy_anchor MsgBindRefusal)"
+EXPECT_OVERRIDE="$(netpolicy_anchor MsgPlatformOverrideAttested)"
+[ -n "$EXPECT_REFUSAL" ]  || { echo "FAIL: could not extract MsgBindRefusal anchor" >&2; exit 1; }
+[ -n "$EXPECT_OVERRIDE" ] || { echo "FAIL: could not extract MsgPlatformOverrideAttested anchor" >&2; exit 1; }
+
 DEN_PID=""
 NETWORKS=()
 WORKDIRS=()
@@ -199,16 +226,32 @@ set +e
 RC=$?
 set -e
 [ "$RC" -ne 0 ] && pass "den refused to start (exit $RC)" || die "den must NOT start with the bind guard tripped"
-grep -q "den refuses to start" "$LOG_C" \
-  && pass "committed bind-refusal message present on stderr" \
-  || { cat "$LOG_C"; die "expected committed bind-refusal message"; }
+# Exact committed MsgBindRefusal literal (source-derived) — NOT the loose
+# "den refuses to start" substring, which also matches MsgBridgeRefusal.
+grep -Fq "$EXPECT_REFUSAL" "$LOG_C" \
+  && pass "exact committed MsgBindRefusal literal present on stderr" \
+  || { cat "$LOG_C"; die "expected exact committed MsgBindRefusal literal"; }
 
 ############################################
 echo "== Leg D: LOCAL-ONLY positive bind-guard leg =="
+# Three independent gates, each SKIPs (never fails the script) with a logged
+# reason — a false pass here would silently destroy the only positive-override
+# coverage:
+#   1. operator opt-in DEN_E2E_LOCAL_NATIVE=1;
+#   2. DOCKER_HOST must be a local unix socket (proxied/remote ⇒ override void);
+#   3. the Go classifier itself (`den debug classify-platform`, the SAME probe
+#      production uses) must agree the host is linux-native-docker co-resident.
 if [ "${DEN_E2E_LOCAL_NATIVE:-0}" != "1" ]; then
   echo "  SKIP: set DEN_E2E_LOCAL_NATIVE=1 ONLY on native co-resident Linux."
   echo "        On proxied/remote/VM Docker the platform_override is void"
   echo "        (SECURITY.md §10/§11) and this leg would be a false pass."
+elif [ -n "${DOCKER_HOST:-}" ] && [ "${DOCKER_HOST#unix://}" = "${DOCKER_HOST}" ]; then
+  echo "  SKIP: DOCKER_HOST='$DOCKER_HOST' is not a local unix:// socket —"
+  echo "        the co-residency attestation would be false-by-construction."
+elif ! "$BIN" debug classify-platform >/tmp/e2e-classify.out 2>&1; then
+  echo "  SKIP: 'den debug classify-platform' is non-zero on this host —"
+  echo "        $(cat /tmp/e2e-classify.out)"
+  echo "        the Go classifier (single source of truth) says NOT co-resident."
 else
   PD=18083
   NET_D="den-e2e-d-$SUFFIX"; DB_D="$(mktemp -d)"; CFG_D="$DB_D/c.yaml"; LOG_D="$DB_D/den.log"
@@ -217,9 +260,11 @@ else
   start_den "$CFG_D" "$LOG_D"
   if wait_health "$PD"; then
     pass "den STARTED with attested platform_override"
-    grep -q 'platform_override' "$LOG_D" && grep -q 'SECURITY' "$LOG_D" \
-      && pass "committed ERROR attestation disclosure logged" \
-      || { cat "$LOG_D"; die "expected SECURITY platform_override attestation log line"; }
+    # Exact committed MsgPlatformOverrideAttested literal (source-derived),
+    # same rigor as Leg C — not a loose 'platform_override'/'SECURITY' pair.
+    grep -Fq "$EXPECT_OVERRIDE" "$LOG_D" \
+      && pass "exact committed MsgPlatformOverrideAttested literal logged" \
+      || { cat "$LOG_D"; die "expected exact committed MsgPlatformOverrideAttested literal"; }
   else
     cat "$LOG_D"; die "den should START on native co-resident Linux with the override"
   fi

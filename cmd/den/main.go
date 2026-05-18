@@ -54,6 +54,7 @@ func main() {
 	rootCmd.AddCommand(snapshotCmd())
 	rootCmd.AddCommand(statsCmd())
 	rootCmd.AddCommand(mcpCmd())
+	rootCmd.AddCommand(debugCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
