@@ -205,6 +205,7 @@ Den takes security seriously. Every sandbox runs with:
 - **Network posture** — Managed Docker network in one of three modes: `internal` (default — no NAT/egress), `bridge` (egress + published ports), `none` (no interface). **`internal` does NOT contain a sandbox: it still reaches the bridge gateway, the embedded DNS resolver (`127.0.0.11`) and any host service bound to `0.0.0.0`. Only `network_mode=none` is a tenant/egress boundary.**
 - **Port binding** — Ports are published Docker-natively to `127.0.0.1` only, fixed at sandbox creation, and **only in `bridge` mode** (inert in `internal`, rejected in `none`). There is no userspace forwarder and no runtime add/remove (`POST`/`DELETE /ports` → `501`). The "Port Publishing" feature above is therefore live only in `bridge`; in the default `internal` mode it is intentionally inert.
 - **Bind guard** — When the API binds a non-loopback address (or loopback with auth disabled), startup **refuses** unless auth is enabled, the effective mode is `none`, or a co-residency `platform_override` is explicitly attested — preventing the unauthenticated control plane from being reachable from a `bridge`/`internal` sandbox
+- **S3 SSRF guard** — Den's S3 client refuses internal targets (cloud-metadata, link-local, loopback, RFC1918, CGNAT) by default; the configured endpoint's IP set is pinned at construction so a DNS rebind or redirect can't smuggle Den onto an internal host. Self-hosted MinIO is an explicit, loudly-logged opt-in (`s3.allow_internal_endpoint`)
 - **Path validation** — Null byte and traversal protection on all file operations
 - **Dynamic memory throttling** — cgroup v2 `memory.high` based throttling instead of hard kills; 5-level pressure system with auto-recovery
 - **Constant-time auth** — API key comparison resistant to timing attacks
@@ -314,6 +315,10 @@ s3:
   region: "us-east-1"
   access_key: "minioadmin"
   secret_key: "minioadmin"
+  # Required for a localhost/LAN endpoint: the SSRF guard blocks every
+  # internal range by default. Opts ONLY this endpoint back in. See
+  # docs/docs/configuration.md → "S3 endpoint SSRF guard".
+  allow_internal_endpoint: true
 
 auth:
   enabled: true

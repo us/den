@@ -56,6 +56,7 @@ s3:
   region: "us-east-1"
   access_key: ""
   secret_key: ""
+  allow_internal_endpoint: false  # opt-in; see "S3 endpoint SSRF guard" below
 
 resource:
   overcommit_ratio: 10.0          # Memory overcommit multiplier
@@ -101,6 +102,7 @@ Prefix `DEN_` with `__` as nesting separator:
 | `s3.endpoint` | `DEN_S3__ENDPOINT` |
 | `s3.access_key` | `DEN_S3__ACCESS_KEY` |
 | `s3.secret_key` | `DEN_S3__SECRET_KEY` |
+| `s3.allow_internal_endpoint` | `DEN_S3__ALLOW_INTERNAL_ENDPOINT` |
 
 ## Network Modes & The Bind Guard
 
@@ -214,3 +216,59 @@ Server startup validates:
 - `sandbox.max_sandboxes` must be positive
 - `sandbox.default_memory` must be ≥ 4MB
 - `sandbox.default_timeout` must be valid Go duration
+- `s3.allow_internal_endpoint=true` requires a non-empty, parseable
+  `s3.endpoint`; an endpoint whose construction-time resolved IP set touches a
+  cloud-metadata / link-local / multicast / unspecified address is a **fatal
+  startup error** regardless of the flag
+
+## S3 endpoint SSRF guard
+
+Den's S3 client (import/export and S3 hooks) is protected by an SSRF guard so a
+sandbox — or a sandbox-influenced per-request endpoint — cannot make Den connect
+to internal infrastructure.
+
+- **Default (`s3.allow_internal_endpoint: false`).** Every internal range —
+  loopback, RFC1918, CGNAT, link-local, multicast, cloud-metadata,
+  benchmark, unspecified — is blocked. The configured endpoint is resolved
+  **once at client construction** and its entire IP set is pinned; the dialer
+  never re-resolves (DNS-rebind TOCTOU closed) and `CheckRedirect` re-validates
+  every 3xx hop.
+- **Self-hosted MinIO / LAN S3 (`s3.allow_internal_endpoint: true`).** Opts the
+  **single configured endpoint** back into loopback / RFC1918 / CGNAT /
+  benchmark reachability — and nothing else. The exemption is pinned to the
+  construction-time IP set; cloud-metadata / link-local / multicast /
+  unspecified stay permanently unreachable; and while it is active a
+  **per-sandbox `endpoint` override is refused** (bucket / region / credential
+  overrides still work). It is logged at `WARN` every start and the resolved
+  config is dumped with both `access_key` and `secret_key` masked.
+
+To use the trusted server endpoint from a sandbox, **omit `endpoint`** in the
+per-sandbox S3 config — Den falls back to the operator-configured endpoint
+rather than accepting an untrusted one. See `SECURITY.md` §(4) for the full
+threat model and trust boundary.
+
+## Upgrading
+
+This section is for operators upgrading an existing deployment.
+
+- **Bind-guard refusal (already in effect, not new here).** Since the
+  `feat!` network-isolation change (`9ad8988`), `den serve` **refuses to
+  start** when the unauthenticated HTTP control plane would be reachable from
+  sandboxes on a host that is not machine-detectably safe. If you upgraded past
+  `9ad8988` you have already adopted this. Remediation, in order of preference:
+  set `auth.enabled=true` with `api_keys`; or run with effective
+  `network_mode=none`; or, **only** on a genuinely native-Linux host where the
+  Docker socket, the bridge gateway and the den process are co-resident, attest
+  it explicitly with `runtime.platform_override="linux-native-docker-co-resident"`
+  (void on proxied/remote/VM Docker — see `SECURITY.md` §10/§11).
+- **S3 internal endpoint now blocked by default (net-new, non-breaking
+  default-deny).** A self-hosted S3/MinIO on `localhost` or the LAN that worked
+  before is now refused unless you set `s3.allow_internal_endpoint: true` (env
+  `DEN_S3__ALLOW_INTERNAL_ENDPOINT=true`). This is additive and defaults to the
+  secure posture; the only action required is the explicit opt-in for self-host
+  topologies.
+- **`Config.String()` diagnostic output (net-new, not an API change).** The
+  startup `"s3 config"` log line and any config dump now mask **both**
+  `access_key` and `secret_key` (previously only `secret_key`). Log scrapers
+  that parsed a cleartext access key from logs must be updated; no on-the-wire
+  or config-file behavior changed.

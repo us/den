@@ -91,6 +91,15 @@ POST /api/v1/sandboxes
 - **`fuse`** — Mount bucket as filesystem via s3fs (requires `allow_s3_fuse: true`)
 - **`on_demand`** — Manual import/export via API endpoints
 
+> **Per-request `endpoint` and the SSRF guard.** When the operator has set
+> `s3.allow_internal_endpoint: true` (self-hosted MinIO/LAN), a per-sandbox or
+> per-request `endpoint` is **refused** — the exemption is pinned to the single
+> operator-configured endpoint. **Omit `endpoint`** to use the trusted server
+> endpoint. `bucket`, `prefix`, `access_key` and `secret_key` overrides are
+> still accepted (they change the object namespace, not the network host). With
+> the exemption off (default), an `endpoint` resolving to any internal range is
+> blocked. See `SECURITY.md` §(4).
+
 Response `201`:
 
 ```json

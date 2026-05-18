@@ -205,6 +205,7 @@ Den 非常重视安全性。每个沙箱运行时具有：
 - **网络态势** — 受管 Docker 网络，三种模式之一：`internal`（默认 — 无 NAT/出站）、`bridge`（出站 + 发布端口）、`none`（无网络接口）。**`internal` 并不隔离沙箱：它仍可访问网桥网关、内嵌 DNS 解析器（`127.0.0.11`）以及任何绑定到 `0.0.0.0` 的主机服务。只有 `network_mode=none` 才是租户/出站边界。**
 - **端口绑定** — 端口由 Docker 原生发布，仅绑定到 `127.0.0.1`，创建时固定，且**仅在 `bridge` 模式下生效**（在 `internal` 下惰性、在 `none` 下被拒绝）。没有用户态转发器，也不支持运行时增删（`POST`/`DELETE /ports` → `501`）。因此上文的"端口发布"特性仅在 `bridge` 下生效；在默认的 `internal` 模式下被有意置为惰性。
 - **绑定守卫** — 当 API 绑定非环回地址（或在禁用认证时绑定环回）时，启动将**拒绝**，除非启用了认证、有效模式为 `none`，或显式声明了同驻 `platform_override` —— 以防止未认证的控制面被 `bridge`/`internal` 沙箱触达
+- **S3 SSRF 守卫** — Den 的 S3 客户端默认拒绝内网目标（云元数据、链路本地、环回、RFC1918、CGNAT）；配置端点的 IP 集在构造时即被钉定，DNS 重绑定或重定向都无法把 Den 引向内网主机。自托管 MinIO 需显式且会被高声记录的选项开启（`s3.allow_internal_endpoint`）
 - **动态内存节流** — 基于 cgroup v2 `memory.high` 的节流，而非硬杀；5 级压力系统 + 自动恢复
 - **路径验证** — 对所有文件操作进行空字节和路径遍历防护
 - **常量时间认证** — API 密钥比较抗时序攻击
@@ -314,6 +315,10 @@ s3:
   region: "us-east-1"
   access_key: "minioadmin"
   secret_key: "minioadmin"
+  # localhost/局域网端点必填：SSRF 守卫默认拦截所有内网范围，
+  # 此项仅将该端点放行。详见 docs/docs/configuration.md →
+  # “S3 endpoint SSRF guard”。
+  allow_internal_endpoint: true
 
 auth:
   enabled: true
