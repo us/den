@@ -17,6 +17,7 @@ import (
 	"github.com/us/den/internal/engine"
 	"github.com/us/den/internal/pathutil"
 	"github.com/us/den/internal/runtime"
+	"github.com/us/den/internal/security/ssrf"
 	"github.com/us/den/internal/storage"
 )
 
@@ -39,9 +40,14 @@ func NewS3Handler(eng *engine.Engine, s3Cfg config.S3Config, logger *slog.Logger
 	return &S3Handler{engine: eng, s3Config: s3Cfg, logger: logger}
 }
 
-// validateEndpoint checks that a user-supplied S3 endpoint is a valid HTTP(S) URL
-// and blocks SSRF attempts targeting internal/private networks.
-func validateEndpoint(endpoint string) error {
+// validateEndpoint checks that a user-supplied S3 endpoint is a valid HTTP(S)
+// URL and blocks SSRF attempts targeting internal/private networks. It is the
+// early defense-in-depth reject for the request-supplied endpoint; the actual
+// connection is independently pinned by the storage transport. Both consult
+// the SAME internal/security/ssrf predicate, so the early reject and the dial
+// agree on exactly one exempt host: the operator-configured endpoint, and only
+// when storage.s3.allow_internal_endpoint is enabled.
+func (h *S3Handler) validateEndpoint(endpoint string) error {
 	if endpoint == "" {
 		return nil
 	}
@@ -56,49 +62,58 @@ func validateEndpoint(endpoint string) error {
 		return fmt.Errorf("endpoint must have a host")
 	}
 
-	host := u.Hostname()
-
-	// Block well-known metadata hostnames
-	blockedHosts := []string{
-		"metadata.google.internal",
-		"metadata.internal",
+	canonical, ip, err := ssrf.EndpointHost(endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid endpoint host: %w", err)
 	}
-	for _, blocked := range blockedHosts {
-		if host == blocked {
-			return fmt.Errorf("endpoint points to a blocked address")
+
+	allow := h.s3Config.AllowInternalEndpoint
+	pinned := h.pinnedServerEndpointSet()
+
+	check := func(addr net.IP) error {
+		if !ssrf.DialPermitted(addr, allow, pinned) {
+			return fmt.Errorf("endpoint resolves to a blocked address: %s", addr)
 		}
+		return nil
 	}
 
-	// Resolve hostname and check all IPs. Phase 3 replaces this whole
-	// function with internal/security/ssrf; until then use the
-	// context-aware resolver so a hung DNS server cannot wedge the handler.
-	addrs, err := net.DefaultResolver.LookupHost(context.Background(), host)
+	if ip != nil {
+		return check(ip)
+	}
+	ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip", canonical)
 	if err != nil {
 		return fmt.Errorf("cannot resolve endpoint host: %w", err)
 	}
-
-	for _, addr := range addrs {
-		ip := net.ParseIP(addr)
-		if ip == nil {
-			return fmt.Errorf("endpoint resolves to invalid IP: %s", addr)
-		}
-		if isBlockedIP(ip) {
-			return fmt.Errorf("endpoint resolves to a blocked address: %s", addr)
+	if len(ips) == 0 {
+		return fmt.Errorf("endpoint host %q resolved to no addresses", canonical)
+	}
+	for _, addr := range ips {
+		if err := check(addr); err != nil {
+			return err
 		}
 	}
-
 	return nil
 }
 
-// isBlockedIP returns true if the IP is in a private, loopback, link-local,
-// or otherwise internal range that should not be accessible via SSRF.
-func isBlockedIP(ip net.IP) bool {
-	return ip.IsLoopback() ||
-		ip.IsPrivate() ||
-		ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() ||
-		storage.IsCloudMetadataIP(ip)
+// pinnedServerEndpointSet returns the operator-configured endpoint's resolved
+// IP set when the internal-endpoint exemption is active, else nil. It mirrors
+// the storage dialer's construction-time pin so the handler's early SSRF
+// reject and the actual connection agree on exactly one exempt host. A
+// resolution failure yields nil (no exemption) — fail closed.
+func (h *S3Handler) pinnedServerEndpointSet() []net.IP {
+	if !h.s3Config.AllowInternalEndpoint || h.s3Config.Endpoint == "" {
+		return nil
+	}
+	set, err := ssrf.ResolvePinnedSet(
+		func(host string) ([]net.IP, error) {
+			return net.DefaultResolver.LookupIP(context.Background(), "ip", host)
+		},
+		h.s3Config.Endpoint,
+	)
+	if err != nil {
+		return nil
+	}
+	return set
 }
 
 type s3ImportRequest struct {
@@ -132,7 +147,7 @@ func (h *S3Handler) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateEndpoint(req.Endpoint); err != nil {
+	if err := h.validateEndpoint(req.Endpoint); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -245,7 +260,7 @@ func (h *S3Handler) Export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateEndpoint(req.Endpoint); err != nil {
+	if err := h.validateEndpoint(req.Endpoint); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

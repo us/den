@@ -39,7 +39,7 @@ Den executes untrusted code inside Docker containers with the following hardenin
 - **Port binding**: published only in `bridge` mode, bound to `127.0.0.1`; fixed at creation (no runtime add/remove — `501`)
 - **Path validation**: Null byte and traversal protection on all file operations
 - **Constant-time auth**: API key comparison resistant to timing attacks
-- **SSRF protection**: S3 endpoints validated against internal/private IP ranges
+- **SSRF protection**: S3 endpoints blocked from internal/private ranges by default; one operator-configured endpoint may be opted in (pinned, never metadata) — see §(4)
 
 ## Network Security Model & Platform Safety Matrix
 
@@ -103,9 +103,59 @@ A kernel-CVE pivot is possible from any mode including `none`.
 
 ### (4) SSRF protection scope
 
-The SSRF allow/deny logic protects **Den's own S3 client** (endpoint validated
-against internal/private ranges). It is not a general egress firewall for sandbox
-traffic; in `bridge` mode a sandbox has unrestricted outbound network access.
+The SSRF allow/deny logic protects **Den's own S3 client** (the endpoint Den
+itself connects to for import/export and S3 hooks). It is not a general egress
+firewall for sandbox traffic; in `bridge` mode a sandbox has unrestricted
+outbound network access.
+
+**Threat model.** A sandbox — or a sandbox-influenced API request supplying a
+per-sandbox S3 endpoint — must not be able to make Den connect to internal
+infrastructure (cloud metadata, link-local, loopback, RFC1918, CGNAT,
+benchmark, unspecified) via a crafted endpoint or a DNS rebind. The single
+home for this defense is `internal/security/ssrf`; it is stdlib-only and is
+consumed identically by the storage transport and the API handlers, so the
+early request reject and the actual dial cannot disagree.
+
+**Default posture.** Every internal range is blocked. The configured endpoint
+is resolved **once at client construction** and its **entire** resolved IP set
+is *pinned*; the dialer never re-resolves, defeating the DNS-rebind TOCTOU
+between validation and connection. `CheckRedirect` re-runs the same predicate
+on every 3xx hop, so a region/host redirect cannot smuggle Den onto an
+internal box.
+
+**Operator exemption — `storage.s3.allow_internal_endpoint`.** Self-hosting
+MinIO on `localhost` or the LAN is a legitimate, common deployment that the
+default posture would make impossible. An operator may set
+`storage.s3.allow_internal_endpoint: true` to opt the **single configured
+endpoint** back into loopback/RFC1918/CGNAT/benchmark reachability. The
+trade-off is explicit: this re-permits exactly the configured host's pinned IP
+set and nothing else. It is logged loudly at startup (a `WARN`), the resolved
+config is dumped with both keys masked, and:
+
+- The exemption is **pinned to the construction-time IP set** — it is not a
+  range allow, and a later DNS answer cannot widen it.
+- **Cloud-metadata, link-local, multicast and unspecified addresses are NEVER
+  reachable**, regardless of the flag or what the endpoint resolves to. A
+  configured endpoint whose pinned set touches one of these is a **hard
+  startup error**, not a per-request refusal — Den fails fast and loud.
+- A **per-sandbox endpoint override is refused** while the exemption is active
+  (Gate B): the exemption is pinned to the one operator-configured endpoint,
+  so a sandbox cannot redirect Den at an arbitrary internal host. Bucket,
+  region and credential overrides remain permitted — they change the object
+  namespace, not the network host (an operator-side bucket-ACL question, not
+  an SSRF).
+
+**Trust model.** The configured endpoint is operator-controlled and trusted;
+per-sandbox-supplied endpoints are untrusted. IDNA/punycode and
+ambiguous-numeric (`127.1`, `0x7f.1`, `2130706433`) host forms are rejected
+for the trusted endpoint rather than normalized — the endpoint must be a
+canonical dotted-quad, bracketed IPv6, or ASCII DNS name.
+
+**Out of scope.** The S3-FUSE mount path (`s3fs`, requires `SYS_ADMIN`,
+disabled by default — see Known Limitations) connects from *inside* the
+sandbox, not from Den's client, and is **not** covered by this SSRF guard.
+Pre-signed URLs handed to a sandbox are likewise opaque to Den and out of
+scope. These are documented limitations, not regressions.
 
 ### (5) Why `enable_icc=false` is sound here
 

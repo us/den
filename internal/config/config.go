@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -103,15 +105,31 @@ type S3Config struct {
 	Region    string `koanf:"region"`
 	AccessKey string `koanf:"access_key"`
 	SecretKey string `koanf:"secret_key"`
+	// AllowInternalEndpoint opts the single configured S3 endpoint back into
+	// loopback/RFC1918/CGNAT reachability (self-hosted MinIO), pinned to its
+	// construction-time IP set. Default false: the SSRF guard blocks all
+	// internal ranges. Metadata/link-local/multicast/unspecified are NEVER
+	// reachable regardless of this flag. Env: DEN_S3__ALLOW_INTERNAL_ENDPOINT.
+	AllowInternalEndpoint bool `koanf:"allow_internal_endpoint"`
 }
 
-// String returns a safe representation of S3Config that masks the secret key.
-func (c S3Config) String() string {
-	masked := "***"
-	if c.SecretKey == "" {
-		masked = "(empty)"
+// maskSecret renders a secret as a fixed redaction token so String() can never
+// leak the literal. Empty is reported distinctly so a missing key is
+// operator-diagnosable.
+func maskSecret(s string) string {
+	if s == "" {
+		return "(empty)"
 	}
-	return fmt.Sprintf("S3Config{Endpoint:%s Region:%s AccessKey:%s SecretKey:%s}", c.Endpoint, c.Region, c.AccessKey, masked)
+	return "***"
+}
+
+// String returns a safe representation of S3Config. BOTH AccessKey and
+// SecretKey are masked — the configreflection test asserts, per field, that
+// the field name appears here and that neither secret's literal does.
+func (c S3Config) String() string {
+	return fmt.Sprintf(
+		"S3Config{Endpoint:%s Region:%s AccessKey:%s SecretKey:%s AllowInternalEndpoint:%t}",
+		c.Endpoint, c.Region, maskSecret(c.AccessKey), maskSecret(c.SecretKey), c.AllowInternalEndpoint)
 }
 
 // StoreConfig holds state persistence settings.
@@ -256,7 +274,46 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid runtime.platform_override %q: must be empty or \"linux-native-docker-co-resident\"", c.Runtime.PlatformOverride)
 	}
 
+	// The SSRF exemption is meaningless without a concrete endpoint to pin.
+	// Reject allow_internal_endpoint=true with an empty/host-less endpoint so
+	// the operator cannot silently widen the guard to "any internal host".
+	if c.S3.AllowInternalEndpoint {
+		if _, err := extractEndpointHost(c.S3.Endpoint); err != nil {
+			return fmt.Errorf(
+				"storage.s3.allow_internal_endpoint=true requires storage.s3.endpoint "+
+					"to carry an extractable host: %w", err)
+		}
+	}
+
 	return nil
+}
+
+// extractEndpointHost pulls a host out of a configured S3 endpoint using
+// stdlib only (config must stay an import leaf; it deliberately does NOT
+// import internal/security/ssrf). It is back-compat-safe: a full URL, a bare
+// host:port, and a bare hostname/IP with no port are all accepted — today's
+// configs are unvalidated and may be scheme-less. The rule is only that a
+// non-empty host is extractable; it mandates neither a scheme nor a port.
+func extractEndpointHost(endpoint string) (string, error) {
+	raw := strings.TrimSpace(endpoint)
+	if raw == "" {
+		return "", fmt.Errorf("endpoint is empty")
+	}
+	if strings.Contains(raw, "://") {
+		u, err := url.Parse(raw)
+		if err != nil {
+			return "", fmt.Errorf("unparseable endpoint URL: %w", err)
+		}
+		if u.Hostname() == "" {
+			return "", fmt.Errorf("endpoint URL has no host")
+		}
+		return u.Hostname(), nil
+	}
+	if h, _, err := net.SplitHostPort(raw); err == nil && h != "" {
+		return h, nil
+	}
+	// Bare hostname/IP with no port (net.SplitHostPort errors "missing port").
+	return raw, nil
 }
 
 // Warnings returns non-fatal configuration advisories. It never fails a
@@ -304,6 +361,13 @@ func Load(path string) (*Config, error) {
 
 	if err := k.Unmarshal("", cfg); err != nil {
 		return nil, fmt.Errorf("unmarshalling config: %w", err)
+	}
+
+	// Validate is wired into the load path so structural guards (notably the
+	// allow_internal_endpoint SSRF guard) cannot be skipped by a caller that
+	// forgets to call Validate(). Idempotent; entrypoints may call it again.
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	return cfg, nil

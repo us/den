@@ -101,6 +101,21 @@ func serveCmd() *cobra.Command {
 			logger = slog.New(handler)
 			slog.SetDefault(logger)
 
+			// Disclose the resolved S3 configuration at startup. String()
+			// masks both the access key and the secret key, so this is safe
+			// to emit at Info. The internal-endpoint exemption is a
+			// security-posture downgrade (it re-permits a single internal
+			// host through the SSRF guard) and is surfaced loudly.
+			logger.Info("s3 config", "config", cfg.S3.String())
+			if cfg.S3.AllowInternalEndpoint {
+				logger.Warn("storage.s3.allow_internal_endpoint is ENABLED — " +
+					"the SSRF guard is relaxed for the single configured S3 " +
+					"endpoint's resolved IP set (self-hosted MinIO/LAN). " +
+					"Cloud-metadata, link-local, multicast and unspecified " +
+					"addresses remain blocked and per-sandbox endpoint " +
+					"overrides are refused.")
+			}
+
 			// Setup store
 			st, err := store.NewBoltStore(cfg.Store.Path)
 			if err != nil {

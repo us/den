@@ -99,3 +99,12 @@ s3:
   region: "us-east-1"
   access_key: ""
   secret_key: ""
+  # allow_internal_endpoint: opt the SINGLE endpoint above back into
+  # loopback / RFC1918 / CGNAT reachability so a self-hosted MinIO on
+  # localhost or the LAN works. Default false: the SSRF guard blocks every
+  # internal range. When true the exemption is PINNED to this endpoint's
+  # construction-time resolved IP set (no DNS rebinding) and per-sandbox
+  # endpoint overrides are refused. Cloud-metadata, link-local, multicast
+  # and unspecified addresses are NEVER reachable regardless of this flag.
+  # Env: DEN_S3__ALLOW_INTERNAL_ENDPOINT=true
+  allow_internal_endpoint: false

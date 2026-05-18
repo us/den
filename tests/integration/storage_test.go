@@ -7,6 +7,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/us/den/internal/runtime"
 	"github.com/us/den/internal/runtime/docker"
 	"github.com/us/den/internal/runtime/netpolicy"
+	"github.com/us/den/internal/security/ssrf"
 	"github.com/us/den/internal/storage"
 	"github.com/us/den/internal/store"
 )
@@ -36,6 +38,12 @@ func getTestS3Config() config.S3Config {
 		Region:    "us-east-1",
 		AccessKey: "minioadmin",
 		SecretKey: "minioadmin",
+		// The CI MinIO endpoint is always an internal host (loopback in the
+		// local compose topology, an RFC1918 docker-network IP under the dind
+		// topology). The SSRF guard blocks every internal range by default;
+		// the operator opt-in being exercised here is precisely the feature
+		// under test — self-hosted MinIO over the exemption.
+		AllowInternalEndpoint: true,
 	}
 }
 
@@ -325,4 +333,88 @@ func TestIntegration_S3Hooks(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.ExitCode)
 	assert.Contains(t, result.Stdout, "hello from s3")
+}
+
+// endpointResolvesInternal reports whether the test MinIO endpoint resolves to
+// at least one SSRF-blocked address. Every SSRF integration assertion below is
+// only meaningful against an internal endpoint; against a (hypothetical)
+// public S3 the guard is a no-op, so we skip rather than false-fail.
+func endpointResolvesInternal(t *testing.T) bool {
+	t.Helper()
+	canonical, ip, err := ssrf.EndpointHost(getMinIOEndpoint())
+	require.NoError(t, err)
+	if ip != nil {
+		return ssrf.IsBlockedIP(ip)
+	}
+	ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip", canonical)
+	require.NoError(t, err)
+	for _, a := range ips {
+		if ssrf.IsBlockedIP(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestIntegration_S3SSRF_GuardBlocksInternalByDefault is the negative proof:
+// with the exemption OFF, a client built for the internal MinIO endpoint
+// refuses to dial it. This is the default secure posture — the existing
+// import/export tests pass ONLY because getTestS3Config opts in.
+func TestIntegration_S3SSRF_GuardBlocksInternalByDefault(t *testing.T) {
+	if !endpointResolvesInternal(t) {
+		t.Skip("MinIO endpoint is not internal; SSRF guard is a no-op here")
+	}
+	ctx := context.Background()
+
+	s3Cfg := getTestS3Config()
+	s3Cfg.AllowInternalEndpoint = false // default secure posture
+
+	creds, err := storage.ResolveS3Credentials(&runtime.S3SyncConfig{
+		Endpoint:  s3Cfg.Endpoint,
+		Bucket:    "test-bucket",
+		AccessKey: s3Cfg.AccessKey,
+		SecretKey: s3Cfg.SecretKey,
+	}, s3Cfg)
+	require.NoError(t, err)
+	require.False(t, creds.AllowInternalEndpoint)
+
+	client, err := storage.NewS3Client(ctx, creds, slog.Default())
+	require.NoError(t, err) // construction OK (loopback/RFC1918 is not never-exempt)
+
+	_, _, err = client.Download(ctx, "test-bucket", "test-data/hello.txt")
+	require.Error(t, err, "SSRF guard must refuse the internal endpoint by default")
+}
+
+// TestIntegration_S3SSRF_PerSandboxEndpointOverrideRefused proves Gate B: with
+// the exemption active the endpoint is pinned to the single configured host;
+// a per-sandbox override is refused before any client is built.
+func TestIntegration_S3SSRF_PerSandboxEndpointOverrideRefused(t *testing.T) {
+	s3Cfg := getTestS3Config() // AllowInternalEndpoint = true
+	_, err := storage.ResolveS3Credentials(&runtime.S3SyncConfig{
+		Endpoint:  "http://attacker.internal:9000",
+		Bucket:    "test-bucket",
+		AccessKey: s3Cfg.AccessKey,
+		SecretKey: s3Cfg.SecretKey,
+	}, s3Cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "per-sandbox S3 endpoint override is refused")
+}
+
+// TestIntegration_S3SSRF_MetadataIsHardError proves a configured endpoint that
+// resolves into a crown-jewel range is a hard client-construction error even
+// with the exemption on — the exemption can never unlock it.
+func TestIntegration_S3SSRF_MetadataIsHardError(t *testing.T) {
+	ctx := context.Background()
+	creds, err := storage.ResolveS3Credentials(&runtime.S3SyncConfig{
+		Bucket: "test-bucket",
+	}, config.S3Config{
+		Endpoint:              "http://169.254.169.254:80",
+		AccessKey:             "k",
+		SecretKey:             "s",
+		AllowInternalEndpoint: true,
+	})
+	require.NoError(t, err)
+	_, err = storage.NewS3Client(ctx, creds, slog.Default())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "never-exempt")
 }
