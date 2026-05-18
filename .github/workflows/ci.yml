@@ -15,9 +15,15 @@ jobs:
         with:
           go-version: "1.25"
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: "v2.4"
+          version: "v2.12.2"
+      # Structural hardening invariants for the security-sensitive control
+      # plane. These are precise go/parser checks (NOT greps — a grep would
+      # false-match the legitimate allow_unsafe_bridge identifier), kept in
+      # the no-Docker lint job so they gate every PR.
+      - name: cmd/den hardening invariants (unsafe / //go:linkname)
+        run: go test ./cmd/den/ -run TestCmdDenHardening -v
 
   test:
     runs-on: ubuntu-latest
@@ -27,7 +33,11 @@ jobs:
         with:
           go-version: "1.25"
       - name: Run unit tests
-        run: go test ./internal/... -short -v -race
+        # ./cmd/den/... carries the hermetic bind-guard / platform_override
+        # proofs and the named-proof floor; it MUST be in the unit line (the
+        # integration `-run TestIntegration` line would silently never match
+        # them). Not added to the integration line — see SECURITY plan.
+        run: go test ./cmd/den/... ./internal/... -short -v -race
 
   build:
     runs-on: ubuntu-latest
