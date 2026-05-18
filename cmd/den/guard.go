@@ -47,9 +47,54 @@ func runStartup(ctx context.Context, s startupSteps) error {
 	return nil
 }
 
+// platformProbe collapses the three live-RPC platform inputs
+// (SystemInfo + DaemonHost + client GOOS → ClassifyPlatform) behind a single
+// injectable seam so the positive platform_override bind-guard branch is
+// provable in a hermetic unit test with a fake probe — no live Docker daemon,
+// no SKIP-on-darwin. A non-nil error means the topology is indeterminate
+// (daemon unreachable); the wrapper maps that to PlatformUnknown WITHOUT
+// calling ClassifyPlatform, preserving the original guard.go clause-(a)
+// semantics exactly. This is the precise case platform_override exists for.
+type platformProbe func(context.Context, *docker.DockerRuntime) (netpolicy.RuntimePlatform, error)
+
+// realPlatformProbe is the verbatim lift of the former inline clause-(a) block
+// (SystemInfo → ClassifyPlatform(info, DaemonHost, GOOS)). It is the SOLE
+// probe passed at the single production call site of
+// applyNetworkGuardsWithProbe, by the bare identifier `realPlatformProbe`.
+//
+// SECURITY-INVARIANT: guard_ast_test.go parses every non-_test.go file in
+// cmd/den and enforces three equalities — (ii-a) the wrapper's probe argument
+// is the exact identifier `realPlatformProbe`, (ii-b) that name resolves to
+// exactly one top-level FuncDecl and is never a binding occurrence, and
+// (ii-c) the PlatformLinuxNativeDocker assignment carries the same-line
+// //den:attested-platform-assignment marker — so the pinned spelling is the
+// pinned value by construction. Deleting or renaming this function, or
+// substituting a stub at the call site, fails that test. Do not remove the
+// marker comment below or the AST exemption stops covering this assignment.
+func realPlatformProbe(ctx context.Context, rt *docker.DockerRuntime) (netpolicy.RuntimePlatform, error) {
+	info, err := rt.SystemInfo(ctx)
+	if err != nil {
+		return netpolicy.PlatformUnknown, err
+	}
+	return netpolicy.ClassifyPlatform(info, rt.DaemonHost(), goruntime.GOOS), nil
+}
+
 // applyNetworkGuards runs the startup network-policy guards. It MUST be called
 // after rt.Ping and BEFORE rt.EnsureNetwork/Reconcile, in both `serve` and
 // `mcp` mode.
+//
+// It is a thin caller of applyNetworkGuardsWithProbe wired to the real probe.
+// This is the ONLY production call site of the wrapper, and the probe argument
+// is the bare identifier `realPlatformProbe` — see the SECURITY-INVARIANT note
+// on realPlatformProbe and guard_ast_test.go.
+func applyNetworkGuards(ctx context.Context, rt *docker.DockerRuntime, cfg *config.Config, logger *slog.Logger, httpListener bool) error {
+	return applyNetworkGuardsWithProbe(ctx, rt, cfg, logger, httpListener, realPlatformProbe)
+}
+
+// applyNetworkGuardsWithProbe is applyNetworkGuards with the platform probe
+// injected, so guard_test.go can prove the positive platform_override branch
+// (override attested ⇒ den STARTS + committed ERROR attestation logged) and
+// the refusal/probe-error branches deterministically with a fake probe.
 //
 // httpListener reports whether this process exposes the HTTP control plane
 // (true for `serve`, false for MCP stdio mode). The bind guard — and its
@@ -60,7 +105,7 @@ func runStartup(ctx context.Context, s startupSteps) error {
 //
 // On refusal it writes the committed netpolicy message to stderr and returns a
 // non-nil error so the caller exits non-zero.
-func applyNetworkGuards(ctx context.Context, rt *docker.DockerRuntime, cfg *config.Config, logger *slog.Logger, httpListener bool) error {
+func applyNetworkGuardsWithProbe(ctx context.Context, rt *docker.DockerRuntime, cfg *config.Config, logger *slog.Logger, httpListener bool, probe platformProbe) error {
 	effectiveMode := netpolicy.Policy{
 		DefaultMode: runtime.NetworkMode(cfg.Runtime.DefaultNetworkMode),
 	}.EffectiveDefault()
@@ -74,11 +119,14 @@ func applyNetworkGuards(ctx context.Context, rt *docker.DockerRuntime, cfg *conf
 	attested := netpolicy.PlatformOverrideAttested(cfg.Runtime.PlatformOverride)
 
 	if httpListener {
-		// Clause (a): a failed `docker info` maps to PlatformUnknown WITHOUT
-		// calling ClassifyPlatform (kept off the pure signature).
+		// Clause (a): an indeterminate probe (failed `docker info`) maps to
+		// PlatformUnknown WITHOUT calling ClassifyPlatform — the fail-closed
+		// default. ClassifyPlatform is only reached inside realPlatformProbe
+		// after a successful SystemInfo, so an error here can never have
+		// consulted it.
 		platform := netpolicy.PlatformUnknown
-		if info, err := rt.SystemInfo(ctx); err == nil {
-			platform = netpolicy.ClassifyPlatform(info, rt.DaemonHost(), goruntime.GOOS)
+		if p, err := probe(ctx, rt); err == nil {
+			platform = p
 		}
 		// v9 §4(a): platform_override forces runtimePlatform=linux-native-docker
 		// for the BindGuardDecision input ONLY. It is deliberately NOT written
@@ -86,7 +134,7 @@ func applyNetworkGuards(ctx context.Context, rt *docker.DockerRuntime, cfg *conf
 		// override as a true platform fact.
 		guardPlatform := platform
 		if attested {
-			guardPlatform = netpolicy.PlatformLinuxNativeDocker
+			guardPlatform = netpolicy.PlatformLinuxNativeDocker //den:attested-platform-assignment
 		}
 		safe := netpolicy.BindGuardDecision(
 			cfg.Auth.Enabled,

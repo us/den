@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"go/ast"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/us/den/internal/config"
 	"github.com/us/den/internal/runtime/docker"
+	"github.com/us/den/internal/runtime/netpolicy"
 )
 
 func quietLogger() *slog.Logger {
@@ -174,4 +177,184 @@ func TestMCP_IsStdioOnly_Structural(t *testing.T) {
 		}
 		return true
 	})
+}
+
+// --- hermetic positive platform_override proof ------------------------------
+//
+// These four named proofs are the ENVIRONMENT-INDEPENDENT, deterministic
+// replacement for the retired dind refusal class and the SKIP-on-darwin Leg D.
+// They inject a fake platformProbe into applyNetworkGuardsWithProbe (the seam
+// applyNetworkGuards is a thin caller of) so the positive override-attested
+// bind-guard branch and the indeterminate-probe branches are provable with NO
+// live Docker daemon. floor_test.go asserts all four ran by name.
+//
+// Assertion-channel correctness: MsgPlatformOverrideAttested is emitted via
+// logger.Error, so a capturing slog.Handler is the right probe for the STARTS
+// cases; MsgBindRefusal is written with fmt.Fprintln(os.Stderr, …) and the
+// RETURNED error is a different literal — so the refusal proofs assert
+// require.Error + the returned-error substring AND captured stderr containing
+// MsgBindRefusal, never a slog record (a slog assertion of refusal would be a
+// vacuous always-pass).
+
+// recordingHandler captures slog records so an ERROR-level message can be
+// asserted by exact text and level.
+type recordingHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (h *recordingHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *recordingHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, r.Clone())
+	return nil
+}
+
+func (h *recordingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *recordingHandler) WithGroup(string) slog.Handler      { return h }
+
+func (h *recordingHandler) hasErrorMessage(msg string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, r := range h.records {
+		if r.Level == slog.LevelError && r.Message == msg {
+			return true
+		}
+	}
+	return false
+}
+
+// captureStderr redirects os.Stderr to a pipe and returns a one-shot reader
+// that restores the original. t.Cleanup restores it even if the reader is
+// never called, so there is no leakage across the four proofs.
+func captureStderr(t *testing.T) (read func() string) {
+	t.Helper()
+	orig := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+	done := false
+	t.Cleanup(func() {
+		if !done {
+			os.Stderr = orig
+			_ = w.Close()
+			_ = r.Close()
+		}
+	})
+	return func() string {
+		_ = w.Close()
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		_ = r.Close()
+		os.Stderr = orig
+		done = true
+		return buf.String()
+	}
+}
+
+// guardBindActiveConfig returns a config whose bind guard WOULD refuse under
+// an HTTP listener (auth off + loopback bind + non-`none` default mode) so the
+// only thing that can let den start is an attested platform_override.
+func guardBindActiveConfig(t *testing.T) *config.Config {
+	t.Helper()
+	cfg := config.DefaultConfig()
+	cfg.Auth.Enabled = false
+	cfg.Server.Host = "127.0.0.1"
+	cfg.Runtime.DefaultNetworkMode = "internal"
+	cfg.Runtime.AllowUnsafeBind = false
+	require.True(t, netpolicy.ClassifyHost(cfg.Server.Host) == netpolicy.HostLoopback,
+		"precondition: 127.0.0.1 must classify as loopback")
+	return cfg
+}
+
+func fakeProbe(p netpolicy.RuntimePlatform, err error) platformProbe {
+	return func(context.Context, *docker.DockerRuntime) (netpolicy.RuntimePlatform, error) {
+		return p, err
+	}
+}
+
+// TestApplyNetworkGuards_PositiveOverrideAttested: a healthy probe +
+// attested override + loopback bind + auth off + httpListener=true ⇒ den
+// STARTS and logs MsgPlatformOverrideAttested at ERROR. This is the positive
+// branch that was previously only provable in a real native-Linux topology.
+func TestApplyNetworkGuards_PositiveOverrideAttested(t *testing.T) {
+	mark(t)
+	cfg := guardBindActiveConfig(t)
+	cfg.Runtime.PlatformOverride = netpolicy.PlatformOverrideCoResident
+
+	h := &recordingHandler{}
+	err := applyNetworkGuardsWithProbe(
+		context.Background(), nil, cfg, slog.New(h), true,
+		fakeProbe(netpolicy.PlatformLinuxNativeDocker, nil),
+	)
+
+	require.NoError(t, err, "attested override on a loopback auth-off host MUST start")
+	assert.True(t, h.hasErrorMessage(netpolicy.MsgPlatformOverrideAttested),
+		"the committed platform-override attestation MUST be logged at ERROR on every start")
+}
+
+// TestApplyNetworkGuards_RefusalWithoutOverride: same posture MINUS the
+// override ⇒ den REFUSES. Asserts the returned-error literal AND that the
+// committed MsgBindRefusal reached stderr (not slog).
+func TestApplyNetworkGuards_RefusalWithoutOverride(t *testing.T) {
+	mark(t)
+	cfg := guardBindActiveConfig(t) // no PlatformOverride
+
+	readStderr := captureStderr(t)
+	err := applyNetworkGuardsWithProbe(
+		context.Background(), nil, cfg, quietLogger(), true,
+		fakeProbe(netpolicy.PlatformLinuxNativeDocker, nil),
+	)
+	stderr := readStderr()
+
+	require.Error(t, err, "loopback auth-off host WITHOUT override MUST refuse")
+	assert.Contains(t, err.Error(),
+		"refusing to start: unauthenticated HTTP control plane reachable from sandboxes",
+		"the returned error must be the guard's bind-refusal literal")
+	assert.Contains(t, stderr, netpolicy.MsgBindRefusal,
+		"the committed MsgBindRefusal must be written to stderr")
+}
+
+// TestApplyNetworkGuards_ProbeErrorAttestedStarts: an INDETERMINATE probe
+// (daemon unreachable) is exactly the case platform_override exists for.
+// probe error + attested ⇒ den STARTS + ERROR attestation. The indeterminate
+// probe must NOT silently downgrade/override the operator's override.
+func TestApplyNetworkGuards_ProbeErrorAttestedStarts(t *testing.T) {
+	mark(t)
+	cfg := guardBindActiveConfig(t)
+	cfg.Runtime.PlatformOverride = netpolicy.PlatformOverrideCoResident
+
+	h := &recordingHandler{}
+	err := applyNetworkGuardsWithProbe(
+		context.Background(), nil, cfg, slog.New(h), true,
+		fakeProbe(netpolicy.PlatformUnknown, errors.New("docker info: connection refused")),
+	)
+
+	require.NoError(t, err,
+		"an indeterminate probe must not override an attested platform_override")
+	assert.True(t, h.hasErrorMessage(netpolicy.MsgPlatformOverrideAttested),
+		"attestation MUST still be logged when the probe was indeterminate")
+}
+
+// TestApplyNetworkGuards_ProbeErrorNoOverrideRefuses: indeterminate probe
+// WITHOUT override ⇒ refuse (indeterminate is unsafe by default). Makes "an
+// unreachable daemon silently downgrades the guard" a failing test.
+func TestApplyNetworkGuards_ProbeErrorNoOverrideRefuses(t *testing.T) {
+	mark(t)
+	cfg := guardBindActiveConfig(t) // no PlatformOverride
+
+	readStderr := captureStderr(t)
+	err := applyNetworkGuardsWithProbe(
+		context.Background(), nil, cfg, quietLogger(), true,
+		fakeProbe(netpolicy.PlatformUnknown, errors.New("docker info: connection refused")),
+	)
+	stderr := readStderr()
+
+	require.Error(t, err, "indeterminate probe WITHOUT override MUST refuse")
+	assert.Contains(t, err.Error(),
+		"refusing to start: unauthenticated HTTP control plane reachable from sandboxes")
+	assert.Contains(t, stderr, netpolicy.MsgBindRefusal,
+		"the committed MsgBindRefusal must be written to stderr")
 }
