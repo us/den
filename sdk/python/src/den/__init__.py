@@ -2,8 +2,8 @@
 
 from den.client import Den
 from den.exceptions import (
-    DenError,
     AuthenticationError,
+    DenError,
     NotFoundError,
     RateLimitError,
     ValidationError,

@@ -98,7 +98,11 @@ class HttpClient {
         ...this.headers,
         "Content-Type": "application/octet-stream",
       },
-      body: typeof body === "string" ? body : Buffer.from(body),
+      // Both arms are valid BodyInit at runtime (Bun/Node fetch). The cast
+      // works around TS 5.7's generic Uint8Array<ArrayBufferLike> not being
+      // assignable to the lib's BodyInit under this tsconfig (no @types/node /
+      // DOM lib). Web-standard and dependency-free — no Node Buffer.
+      body: body as BodyInit,
     });
 
     if (!response.ok) {

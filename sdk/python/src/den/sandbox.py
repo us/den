@@ -7,8 +7,8 @@ from typing import Any
 import httpx
 
 from den.exceptions import (
-    DenError,
     AuthenticationError,
+    DenError,
     NotFoundError,
     RateLimitError,
     ValidationError,
@@ -606,7 +606,7 @@ class SandboxManager:
         resp = await self._async_client.delete(f"{self._base_url}/{sandbox_id}")
         _raise_for_status(resp)
 
-    def restore_snapshot(self, snapshot_id: str) -> "Sandbox":
+    def restore_snapshot(self, snapshot_id: str) -> Sandbox:
         """Restore a sandbox from a snapshot (sync).
 
         Args:
@@ -621,7 +621,7 @@ class SandboxManager:
         info = SandboxInfo.model_validate(resp.json())
         return self._wrap(info)
 
-    async def arestore_snapshot(self, snapshot_id: str) -> "Sandbox":
+    async def arestore_snapshot(self, snapshot_id: str) -> Sandbox:
         """Restore a sandbox from a snapshot (async).
 
         Args:
