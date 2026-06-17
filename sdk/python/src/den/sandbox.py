@@ -242,6 +242,38 @@ class Sandbox:
         _raise_for_status(resp)
         return [FileInfo.model_validate(f) for f in resp.json()]
 
+    def stat(self, path: str) -> FileInfo:
+        """Return metadata for a single file or directory (sync).
+
+        Args:
+            path: Absolute path inside the sandbox.
+
+        Returns:
+            FileInfo for the path.
+
+        Raises:
+            NotFoundError: If the path does not exist.
+        """
+        resp = self._client.get(
+            f"{self._base_url}/files/stat",
+            params={"path": path},
+        )
+        _raise_for_status(resp)
+        return FileInfo.model_validate(resp.json())
+
+    async def astat(self, path: str) -> FileInfo:
+        """Return metadata for a single file or directory (async).
+
+        Raises:
+            NotFoundError: If the path does not exist.
+        """
+        resp = await self._async_client.get(
+            f"{self._base_url}/files/stat",
+            params={"path": path},
+        )
+        _raise_for_status(resp)
+        return FileInfo.model_validate(resp.json())
+
     def mkdir(self, path: str) -> None:
         """Create a directory inside the sandbox (sync).
 
@@ -354,6 +386,20 @@ class Sandbox:
     async def astop(self) -> None:
         """Stop the sandbox (async)."""
         resp = await self._async_client.post(f"{self._base_url}/stop")
+        _raise_for_status(resp)
+
+    def start(self) -> None:
+        """Start a previously stopped sandbox (sync).
+
+        The container and its volumes survive ``stop``, so ``start`` restores
+        the same filesystem and identity.
+        """
+        resp = self._client.post(f"{self._base_url}/start")
+        _raise_for_status(resp)
+
+    async def astart(self) -> None:
+        """Start a previously stopped sandbox (async)."""
+        resp = await self._async_client.post(f"{self._base_url}/start")
         _raise_for_status(resp)
 
     def destroy(self) -> None:

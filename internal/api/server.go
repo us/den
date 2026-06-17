@@ -123,6 +123,7 @@ func RegisterRoutes(r chi.Router, eng *engine.Engine, rt runtime.Runtime, cfg *c
 		r.Get("/sandboxes/{id}", sh.Get)
 		r.Delete("/sandboxes/{id}", sh.Delete)
 		r.Post("/sandboxes/{id}/stop", sh.Stop)
+		r.Post("/sandboxes/{id}/start", sh.Start)
 
 		// Exec
 		r.Post("/sandboxes/{id}/exec", eh.Exec)
@@ -131,6 +132,7 @@ func RegisterRoutes(r chi.Router, eng *engine.Engine, rt runtime.Runtime, cfg *c
 		r.Get("/sandboxes/{id}/files", fh.ReadFile)
 		r.Put("/sandboxes/{id}/files", fh.WriteFile)
 		r.Get("/sandboxes/{id}/files/list", fh.ListDir)
+		r.Get("/sandboxes/{id}/files/stat", fh.Stat)
 		r.Post("/sandboxes/{id}/files/mkdir", fh.MkDir)
 		r.Delete("/sandboxes/{id}/files", fh.RemoveFile)
 		r.Post("/sandboxes/{id}/files/upload", fh.Upload)

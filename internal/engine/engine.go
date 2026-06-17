@@ -350,6 +350,37 @@ func (e *Engine) StopSandbox(ctx context.Context, id string) error {
 	return nil
 }
 
+// StartSandbox starts a previously stopped sandbox without recreating it. The
+// container (and its named volumes) survive Stop, so Start restores the same
+// filesystem and identity.
+func (e *Engine) StartSandbox(ctx context.Context, id string) error {
+	sandbox, err := e.GetSandbox(id)
+	if err != nil {
+		return err
+	}
+
+	if err := e.runtime.Start(ctx, id); err != nil {
+		return fmt.Errorf("starting sandbox: %w", err)
+	}
+
+	sandbox.SetStatus(runtime.StatusRunning)
+	if err := e.saveSandbox(sandbox); err != nil {
+		e.logger.Warn("failed to save sandbox state after start", "id", id, "error", err)
+	}
+	e.logger.Info("sandbox started", "id", id)
+	return nil
+}
+
+// Info returns live runtime information for a sandbox, including the container
+// IP. Works regardless of run state (does not require the sandbox to be
+// running) so callers can resolve the address of a just-started sandbox.
+func (e *Engine) Info(ctx context.Context, id string) (*runtime.SandboxInfo, error) {
+	if _, err := e.GetSandbox(id); err != nil {
+		return nil, err
+	}
+	return e.runtime.Info(ctx, id)
+}
+
 // DestroySandbox stops and removes a sandbox.
 func (e *Engine) DestroySandbox(ctx context.Context, id string) error {
 	// LoadAndDelete to prevent concurrent destroy of the same sandbox
@@ -437,6 +468,14 @@ func (e *Engine) ListDir(ctx context.Context, id string, path string) ([]runtime
 		return nil, err
 	}
 	return e.runtime.ListDir(ctx, id, path)
+}
+
+// Stat returns metadata for a single file or directory in a sandbox.
+func (e *Engine) Stat(ctx context.Context, id string, path string) (*runtime.FileInfo, error) {
+	if err := e.requireRunning(id); err != nil {
+		return nil, err
+	}
+	return e.runtime.Stat(ctx, id, path)
 }
 
 // MkDir creates a directory in a sandbox.

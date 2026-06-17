@@ -130,6 +130,34 @@ func (h *FileHandler) ListDir(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, files)
 }
 
+// Stat handles GET /api/v1/sandboxes/{id}/files/stat?path=/foo.
+func (h *FileHandler) Stat(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path query parameter is required")
+		return
+	}
+	if err := validatePath(path); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	info, err := h.engine.Stat(r.Context(), id, path)
+	if err != nil {
+		if errors.Is(err, engine.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "sandbox not found")
+			return
+		}
+		// For a known, running sandbox a stat failure means the path does not
+		// exist; surface it as a 404 rather than a server error.
+		writeError(w, http.StatusNotFound, "file not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, info)
+}
+
 // MkDir handles POST /api/v1/sandboxes/{id}/files/mkdir?path=/foo.
 func (h *FileHandler) MkDir(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

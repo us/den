@@ -639,6 +639,23 @@ func (r *DockerRuntime) Info(ctx context.Context, id string) (*runtime.SandboxIn
 		}
 	}
 
+	// Container IP on the managed bridge network (den-net). Directly
+	// reachable for any port from a co-resident Linux host. Prefer the
+	// managed network, then fall back to the first endpoint with an address.
+	var ip string
+	if inspect.NetworkSettings != nil {
+		if ep := inspect.NetworkSettings.Networks[r.networkID]; ep != nil && ep.IPAddress != "" {
+			ip = ep.IPAddress
+		} else {
+			for _, ep := range inspect.NetworkSettings.Networks {
+				if ep != nil && ep.IPAddress != "" {
+					ip = ep.IPAddress
+					break
+				}
+			}
+		}
+	}
+
 	return &runtime.SandboxInfo{
 		ID:        id,
 		Name:      strings.TrimPrefix(inspect.Name, "/"),
@@ -648,6 +665,7 @@ func (r *DockerRuntime) Info(ctx context.Context, id string) (*runtime.SandboxIn
 		Ports:     ports,
 		Labels:    inspect.Config.Labels,
 		Pid:       inspect.State.Pid,
+		IP:        ip,
 	}, nil
 }
 

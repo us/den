@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/us/den/internal/runtime"
 )
@@ -76,6 +77,44 @@ func (r *DockerRuntime) ListDir(ctx context.Context, id string, path string) ([]
 	}
 
 	return parseLsOutput(result.Stdout, path), nil
+}
+
+// Stat returns metadata for a single file or directory in the container.
+// Used to back a stat/get-file-info API; failure (non-zero exit) means the
+// path does not exist, which the handler maps to 404.
+func (r *DockerRuntime) Stat(ctx context.Context, id string, path string) (*runtime.FileInfo, error) {
+	result, err := r.Exec(ctx, id, runtime.ExecOpts{
+		Cmd: []string{"stat", "-c", "%A|%s|%Y|%F", path},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("stat %s in %s: %w", path, id, err)
+	}
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("stat %s in %s: %s", path, id, strings.TrimSpace(result.Stderr))
+	}
+	return parseStatOutput(result.Stdout, path)
+}
+
+func parseStatOutput(output, path string) (*runtime.FileInfo, error) {
+	line := strings.TrimSpace(output)
+	parts := strings.SplitN(line, "|", 4)
+	if len(parts) < 4 {
+		return nil, fmt.Errorf("unexpected stat output: %q", line)
+	}
+
+	var size int64
+	_, _ = fmt.Sscanf(parts[1], "%d", &size)
+	var epoch int64
+	_, _ = fmt.Sscanf(parts[2], "%d", &epoch)
+
+	return &runtime.FileInfo{
+		Name:    filepath.Base(path),
+		Path:    path,
+		Size:    size,
+		Mode:    parts[0],
+		ModTime: time.Unix(epoch, 0).UTC(),
+		IsDir:   strings.Contains(parts[3], "directory"),
+	}, nil
 }
 
 // MkDir creates a directory in the container.

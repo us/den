@@ -89,6 +89,10 @@ func (m *MockRuntime) ListDir(_ context.Context, _ string, _ string) ([]runtime.
 	return nil, nil
 }
 
+func (m *MockRuntime) Stat(_ context.Context, _ string, _ string) (*runtime.FileInfo, error) {
+	return &runtime.FileInfo{}, nil
+}
+
 func (m *MockRuntime) MkDir(_ context.Context, _ string, _ string) error {
 	return nil
 }

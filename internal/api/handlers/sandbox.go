@@ -47,6 +47,7 @@ type sandboxResponse struct {
 	CreatedAt time.Time             `json:"created_at"`
 	ExpiresAt time.Time             `json:"expires_at,omitempty"`
 	Ports     []runtime.PortMapping `json:"ports,omitempty"`
+	IP        string                `json:"ip,omitempty"`
 }
 
 func toSandboxResponse(s *engine.Sandbox) sandboxResponse {
@@ -128,7 +129,13 @@ func (h *SandboxHandler) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to get sandbox")
 		return
 	}
-	writeJSON(w, http.StatusOK, toSandboxResponse(sandbox))
+	resp := toSandboxResponse(sandbox)
+	// Enrich with the live container IP (best-effort; absent on stopped
+	// sandboxes or non-routable hosts).
+	if info, ierr := h.engine.Info(r.Context(), id); ierr == nil {
+		resp.IP = info.IP
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // Delete handles DELETE /api/v1/sandboxes/{id}.
@@ -159,4 +166,19 @@ func (h *SandboxHandler) Stop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
+// Start handles POST /api/v1/sandboxes/{id}/start.
+func (h *SandboxHandler) Start(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.engine.StartSandbox(r.Context(), id); err != nil {
+		if errors.Is(err, engine.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "sandbox not found")
+			return
+		}
+		h.logger.Error("failed to start sandbox", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to start sandbox")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "running"})
 }

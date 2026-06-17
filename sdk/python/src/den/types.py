@@ -82,6 +82,10 @@ class SandboxInfo(BaseModel):
     created_at: datetime | None = None
     expires_at: datetime | None = None
     ports: list[PortMapping] | None = None
+    # Container IP on the managed bridge network. Reachable for any port from a
+    # co-resident Linux host; empty for network_mode="none" or when the bridge
+    # is not host-routable (e.g. Docker Desktop on macOS).
+    ip: str = ""
 
 
 class ExecResult(BaseModel):

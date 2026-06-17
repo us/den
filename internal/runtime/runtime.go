@@ -120,6 +120,13 @@ type SandboxInfo struct {
 	Ports     []PortMapping     `json:"ports,omitempty"`
 	Labels    map[string]string `json:"labels,omitempty"`
 	Pid       int               `json:"pid,omitempty"`
+	// IP is the sandbox container's address on the managed bridge network
+	// (den-net). On a Linux host co-resident with the Docker daemon this is
+	// directly reachable for any container port, which is how callers expose
+	// in-sandbox services without per-port host publishing. Empty when the
+	// sandbox has no network endpoint (network_mode=none) or on hosts where
+	// the bridge is not host-routable (e.g. Docker Desktop on macOS).
+	IP string `json:"ip,omitempty"`
 }
 
 // ExecOpts configures command execution inside a sandbox.
@@ -208,6 +215,7 @@ type Runtime interface {
 	ReadFile(ctx context.Context, id string, path string) ([]byte, error)
 	WriteFile(ctx context.Context, id string, path string, content []byte) error
 	ListDir(ctx context.Context, id string, path string) ([]FileInfo, error)
+	Stat(ctx context.Context, id string, path string) (*FileInfo, error)
 	MkDir(ctx context.Context, id string, path string) error
 	RemoveFile(ctx context.Context, id string, path string) error
 
