@@ -311,10 +311,13 @@ func buildContainerCreateSpec(id string, cfg runtime.SandboxConfig, networkID st
 		},
 		// Docker applies the default seccomp profile automatically when
 		// no seccomp option is specified (blocks ~44 dangerous syscalls).
-		SecurityOpt:    []string{"no-new-privileges"},
-		CapDrop:        []string{"ALL"},
-		CapAdd:         []string{"NET_BIND_SERVICE", "CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"},
-		ReadonlyRootfs: true,
+		SecurityOpt: []string{"no-new-privileges"},
+		CapDrop:     []string{"ALL"},
+		CapAdd:      []string{"NET_BIND_SERVICE", "CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"},
+		// Read-only rootfs is the secure default (WritableRootfs zero-value is
+		// false). Callers opt out only for heavyweight images that write
+		// outside the tmpfs/volume mounts (e.g. a Chrome+VNC desktop).
+		ReadonlyRootfs: !cfg.WritableRootfs,
 		Tmpfs:          cfg.TmpfsMap,
 		Mounts:         mounts,
 	}

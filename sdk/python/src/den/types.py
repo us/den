@@ -66,6 +66,9 @@ class SandboxConfig(BaseModel):
     memory: int | None = None  # bytes
     ports: list[PortMapping] | None = None
     storage: StorageConfig | None = None
+    # Opt out of the read-only rootfs default (secure default is read-only).
+    # Needed for heavyweight images that write outside tmpfs/volume mounts.
+    writable_rootfs: bool | None = None
     # Per-sandbox network override. Only "" (inherit the server default) or
     # "none" (no network at all) are accepted; any other value -- including
     # one equal to the server default -- is rejected with HTTP 400. A

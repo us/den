@@ -104,10 +104,14 @@ type SandboxConfig struct {
 	// (only "" or "none" are accepted from a caller) and the resolved
 	// effective mode on the way out (set by the engine before the Docker
 	// boundary). The Docker runtime reads the effective value here.
-	NetworkMode NetworkMode       `json:"network_mode,omitempty"`
-	ReadOnlyFS  bool              `json:"readonly_fs,omitempty"`
-	Storage     *StorageConfig    `json:"storage,omitempty"`
-	TmpfsMap    map[string]string `json:"-"` // Computed by engine from storage config + defaults
+	NetworkMode NetworkMode `json:"network_mode,omitempty"`
+	ReadOnlyFS  bool        `json:"readonly_fs,omitempty"`
+	// WritableRootfs opts out of the read-only rootfs default (secure default
+	// is false → read-only). For heavyweight images that write outside the
+	// tmpfs/volume mounts.
+	WritableRootfs bool              `json:"writable_rootfs,omitempty"`
+	Storage        *StorageConfig    `json:"storage,omitempty"`
+	TmpfsMap       map[string]string `json:"-"` // Computed by engine from storage config + defaults
 }
 
 // SandboxInfo holds runtime information about a sandbox.

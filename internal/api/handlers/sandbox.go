@@ -33,6 +33,9 @@ type createSandboxRequest struct {
 	Memory  int64                  `json:"memory,omitempty"`
 	Ports   []runtime.PortMapping  `json:"ports,omitempty"`
 	Storage *runtime.StorageConfig `json:"storage,omitempty"`
+	// WritableRootfs opts out of the read-only rootfs default (secure default
+	// is read-only). Needed for heavyweight images (e.g. Chrome+VNC desktop).
+	WritableRootfs bool `json:"writable_rootfs,omitempty"`
 	// NetworkMode is the per-sandbox override. Only "" (inherit the global
 	// default) or "none" (more isolation) are accepted; any other value —
 	// including one equal to the global default — is a 400. A per-sandbox
@@ -70,14 +73,15 @@ func (h *SandboxHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := runtime.SandboxConfig{
-		Image:       req.Image,
-		Env:         req.Env,
-		WorkDir:     req.WorkDir,
-		CPU:         req.CPU,
-		Memory:      req.Memory,
-		Ports:       req.Ports,
-		Storage:     req.Storage,
-		NetworkMode: req.NetworkMode,
+		Image:          req.Image,
+		Env:            req.Env,
+		WorkDir:        req.WorkDir,
+		CPU:            req.CPU,
+		Memory:         req.Memory,
+		Ports:          req.Ports,
+		Storage:        req.Storage,
+		NetworkMode:    req.NetworkMode,
+		WritableRootfs: req.WritableRootfs,
 	}
 	if req.Timeout > 0 {
 		cfg.Timeout = time.Duration(req.Timeout) * time.Second
