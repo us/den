@@ -2,6 +2,26 @@
 
 All notable changes to Den are documented in this file.
 
+## [0.1.0](https://github.com/us/den/compare/v0.0.6...v0.1.0) (2026-06-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **s3:** a self-hosted S3/MinIO endpoint on loopback/RFC1918 is now refused by default; set storage.s3.allow_internal_endpoint=true to restore it.
+* on the native-Linux + loopback-bind + auth-disabled configuration den now REFUSES to start unless runtime.platform_override="linux-native-docker-co-resident" is set (or auth is enabled, or the effective mode is "none"). This closes an unauthenticated control-plane host-escape reachable from inside a sandbox and is a deliberate, operator-accepted posture change. Per-sandbox network_mode other than "" or "none" is now a 400.
+
+### Features
+
+* **api:** add start, files/stat, and sandbox IP for mariete compat ([1b3154b](https://github.com/us/den/commit/1b3154b59acdbe4b1ed014762065e21a93380adf))
+* connectable network modes and host port publishing ([9ad8988](https://github.com/us/den/commit/9ad8988016c5604ddf5624e7df0b6218645afaf2))
+* **runtime:** add writable_rootfs opt-out for heavyweight images ([b4d049f](https://github.com/us/den/commit/b4d049f6b331fbbb73143e65dfc78a9b359dbabd))
+* **s3:** SSRF-pin configured endpoint, opt-in internal exemption ([658823e](https://github.com/us/den/commit/658823e8fbb56d04a67983360ed6284ad8a273a4))
+
+
+### Bug Fixes
+
+* repair make test-integration floor misfire and TS SDK tsc build ([42c83aa](https://github.com/us/den/commit/42c83aa470d8cbdb4f74bc2226df886d3e272796))
+
 ## [v0.0.6] — 2026-03-14
 
 ### Added
